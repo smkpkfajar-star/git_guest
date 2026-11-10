@@ -39,10 +39,14 @@ docs/                    storyboard, design, game rules, requirements, plan
 
 - 10 karakter anime yang bisa dikustomisasi dan berevolusi seiring level (lihat `docs/characters.md`).
 - 8 peta (Plaza + satu peta per stage) dengan kamera, minimap, serta NPC baik dan jahat yang menjelaskan materi, punya jobdesk, memberi petunjuk arah, dan saling mengobrol; karakter pemain ditandai "KAMU" (lihat `docs/world_maps.md`).
+- Tiap stage punya bangunan khas (akademi, kota, gudang, vault, kastil) dan portal level berupa ruang kelas (Level 1) atau portal matriks berdesain berbeda; semuanya bisa dilewati tanpa lewat pintu dan memudar saat pemain di baliknya.
+- Tiap peta punya **Penyimpan Materi** (NPC berlabel ungu "MATERI", titik ungu di minimap). Siswa harus membaca semua materinya dulu agar portal level terbuka dan musuh bisa dilawan; progres baca tersimpan per profil.
+- **Catatan Misi** selalu tampil di atas peta (langkah berikutnya, tombol Tunjukkan, bisa diciutkan) dan tombol **Panduan** membuka tutorial 4 halaman yang otomatis muncul pertama kali. Nama zona tampil di tengah layar saat masuk.
+- Mode kontrol dunia: **GUI** (panah/WASD/klik) atau **CLI** (ketik perintah seperti `right 3; interact()`), diatur di Pengaturan.
 - Mode RPG: jelajahi dunia, bicara dengan NPC, masuk portal, lalu bertarung dengan monster (lihat `docs/rpg_mode.md`).
 - Ketujuh stage dapat dimainkan, masing-masing dengan tipe game berbeda (lihat `docs/stage_games.md`).
 - Game dapat ditamatkan: kondisi kemenangan dan gelar Repository Guardian aktif.
-- Aset: gambar SVG, audio, dan font sudah tersedia di `assets/` (lihat `assets/README.md` untuk daftar dan lisensi).
+- Aset: gambar SVG, audio (termasuk efek dialog NPC dan baca materi), dan font sudah tersedia di `assets/` (lihat `assets/README.md` untuk daftar dan lisensi).
 
 ## Batasan
 
