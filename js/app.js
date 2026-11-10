@@ -319,7 +319,7 @@
       if (!name) { err.textContent = 'Nama tampilan tidak boleh kosong.'; input.focus(); return; }
       if (name.length > 20) { err.textContent = 'Nama maksimal 20 karakter.'; input.focus(); return; }
       var id = 'p' + Date.now().toString(36);
-      save.profiles[id] = { displayName: name, xp: 0, completedMissions: [], xpChallenges: [], bestScores: {}, introSeen: false, char: window.GQChars.defaults('rafi') };
+      save.profiles[id] = { displayName: name, xp: 0, completedMissions: [], xpChallenges: [], bestScores: {}, learned: {}, introSeen: false, char: window.GQChars.defaults('rafi') };
       save.activeProfile = id; persist();
       go('creator', { isNew: true });
     }
@@ -557,16 +557,63 @@
   }
 
   /* ---------- Dunia (overworld) ---------- */
+  /* Syarat belajar: NPC penyimpan materi tiap stage menyimpan semua topik; portal Level terbuka setelah semuanya dibaca. */
+  function topicsOf(i) { return (MISSIONS[i] && MISSIONS[i].material) || []; }
+  function learnedList(i) { var p = profile(); return (p.learned && p.learned[MISSIONS[i].id]) || []; }
+  function learnedCount(i) { var n = topicsOf(i).length; return learnedList(i).filter(function (k) { return k < n; }).length; }
+  function learnedAll(i) { var n = topicsOf(i).length; return !n || missionStatus(i) === 'completed' || learnedCount(i) >= n; }
+  function keeperMission(npcId) {
+    var ids = Object.keys(window.GQ_AREAS || {});
+    for (var k = 0; k < ids.length; k++) if (window.GQ_AREAS[ids[k]].keeper === npcId) return MISSIONS.findIndex(function (m) { return m.id === ids[k]; });
+    return -1;
+  }
+  function keeperName(i) { var A0 = window.GQ_AREAS[MISSIONS[i].id], n = A0 && A0.npcs.filter(function (q) { return q.id === A0.keeper; })[0]; return n ? n.name : 'guru'; }
+  /** Perpustakaan materi milik NPC penyimpan: daftar topik, baca, tandai paham. */
+  function openLibrary(i) {
+    var m = MISSIONS[i], TP = topicsOf(i), close, body = h('div');
+    function mark(k) { var p = profile(); p.learned = p.learned || {}; var a = p.learned[m.id] = p.learned[m.id] || []; if (a.indexOf(k) < 0) { a.push(k); persist(); } }
+    function list() {
+      body.textContent = '';
+      var n = learnedCount(i), all = n >= TP.length;
+      body.appendChild(h('p', { class: 'muted', text: all ? 'Semua materi sudah kamu pelajari. Portal Level ' + m.no + ' terbuka, saatnya melawan ' + (m.enemy ? m.enemy.name : 'musuh') + '!' : 'Baca semua topik (' + n + '/' + TP.length + ') agar portal Level ' + m.no + ' terbuka.' }));
+      body.appendChild(h('div', { class: 'bar green', role: 'progressbar', 'aria-label': 'Materi dibaca', 'aria-valuemin': '0', 'aria-valuemax': String(TP.length), 'aria-valuenow': String(n) }, h('i', { style: 'width:' + (n / TP.length * 100) + '%' })));
+      TP.forEach(function (sct, k) {
+        var done = learnedList(i).indexOf(k) >= 0;
+        body.appendChild(h('div', { class: 'row', style: 'margin:6px 0' }, btn((done ? '✓ ' : '• ') + sct.h, done ? 'btn-secondary' : 'btn-primary', function () { topic(k); })));
+      });
+      var acts = [];
+      if (all && world && world.dests) acts.push(btn('Tunjukkan portal Level', 'btn-primary', function () { var d = world.dests().filter(function (q) { return q.type === 'portal' && q.portal.kind === 'mission'; })[0]; close(); if (d) world.guide(d.x, d.y, 'Portal Level ' + m.no); }));
+      acts.push(btn('Tutup', 'btn-secondary', function () { close(); }));
+      body.appendChild(h('div', { class: 'row', style: 'margin-top:10px' }, acts));
+    }
+    function topic(k) {
+      var sct = TP[k]; body.textContent = '';
+      body.appendChild(h('h3', { text: sct.h }));
+      if (sct.img) body.appendChild(h('img', { class: 'material-img', src: sct.img, alt: sct.alt || '' }));
+      (sct.p || []).forEach(function (t) { body.appendChild(h('p', { text: t })); });
+      if (sct.code) body.appendChild(h('pre', { class: 'code-block', tabindex: '0', 'aria-label': 'Contoh perintah' }, h('code', { text: sct.code.join('\n'), style: 'background:none;padding:0;color:inherit' })));
+      body.appendChild(h('div', { class: 'row', style: 'margin-top:10px' },
+        btn('Sudah paham', 'btn-primary', function () {
+          var was = learnedAll(i); mark(k); sfx('hint');
+          if (!was && learnedAll(i)) { toast('Materi lengkap! Portal Level ' + m.no + ' terbuka.'); sfx('unlock'); }
+          list();
+        }),
+        btn('Kembali', 'btn-secondary', list)));
+    }
+    list();
+    close = openModal('Materi: ' + m.title, [body]);
+  }
+
   var NPC_INFO = {
     nara: {
       name: 'Nara', cls: 'nara', lines: function () {
         var p = profile(), idx = firstOpenMission();
-        if (p.completedMissions.length === 0) return ['Selamat datang di Plaza CodeForge! Setiap stage punya peta sendiri. Gerbang biru bernomor 1 (AKADEMI) di bagian bawah adalah tujuan pertamamu.', 'Di dalam peta ada guru (nama hijau) yang menjelaskan materi, dan penjahat (nama merah) yang menyebar kebiasaan buruk. Ajak bicara semuanya, lalu masuk portal level di ujung peta!'];
+        if (p.completedMissions.length === 0) return ['Selamat datang di Plaza CodeForge! Setiap stage punya peta sendiri. Gerbang biru bernomor 1 (AKADEMI) di bagian bawah adalah tujuan pertamamu.', 'Di tiap peta ada guru berlabel ungu MATERI yang menyimpan materi. Baca semuanya dulu agar portal Level terbuka. Nama hijau = guru baik, nama merah = penjahat.', 'Bingung? Lihat kartu Petunjuk di samping peta, atau tekan tombol Panduan di atas. Tanyakan arah ke NPC baik kapan saja!'];
         if (idx >= 0) return ['Kerja bagus! Misi berikutnya: Level ' + MISSIONS[idx].no + ' — ' + MISSIONS[idx].title + '. Gerbang ' + MISSIONS[idx].no + ' di Plaza sudah menyala.'];
         return ['Semua misi yang tersedia sudah kamu tuntaskan. Ulangi misi untuk meraih 100 poin, dan tunggu level berikutnya!'];
       }
     },
-    bugbyte: { name: 'Bugbyte', cls: 'bugbyte', lines: function () { return ['Bip! Gerak: panah atau WASD. Interaksi: Enter atau Spasi.', 'Saat bertarung, jawaban benar menyerang musuh. Bingung? Pakai Petunjuk dan aku akan memindai soalnya. Poin berkurang, XP tidak.']; } },
+    bugbyte: { name: 'Bugbyte', cls: 'bugbyte', lines: function () { return ['Bip! Gerak: panah atau WASD (mode CLI: ketik perintah). Interaksi: Enter atau Spasi. Lupa caranya? Tombol Panduan di atas menjelaskan semuanya.', 'Saat bertarung, jawaban benar menyerang musuh. Bingung? Pakai Petunjuk dan aku akan memindai soalnya. Poin berkurang, XP tidak.']; } },
     dev1: { name: 'Dev Senior', cls: 'player', lines: function () { return ['Dulu aku menyalin folder proyek jadi "final_v2_beneran_fix". Berantakan! Sejak pakai Git, semua versi tercatat rapi di riwayat.']; } },
     dev2: { name: 'Dev Magang', cls: 'nara', lines: function () { return ['Tips: bayangkan Staging Area seperti keranjang belanja. git add memasukkan barang ke keranjang, git commit membayarnya ke riwayat.']; } },
     glitch: {
@@ -605,7 +652,8 @@
   function talk(id) {
     var info = NPC_INFO[id]; if (!info) return;
     talked[id] = 1;
-    var lines = info.lines(), i = 0, close, evil = info.kind === 'evil', canAsk = !evil && world && world.dests;
+    var lines = info.lines().slice(), i = 0, close, evil = info.kind === 'evil', canAsk = !evil && world && world.dests, km = evil ? -1 : keeperMission(id);
+    if (km >= 0 && !learnedAll(km)) lines.push('Aku menyimpan ' + topicsOf(km).length + ' materi untuk zona ini. Baca semuanya dulu, baru portal Level ' + MISSIONS[km].no + ' terbuka dan kamu boleh melawan ' + (MISSIONS[km].enemy ? MISSIONS[km].enemy.name : 'musuh') + '.');
     var speaker = h('div', { class: 'speaker ' + (evil ? 'evil' : 'good'), text: info.name + (evil ? ' (jahat)' : ' (baik)') });
     var job = info.job ? h('div', { class: 'job', text: 'Jobdesk: ' + info.job }) : null;
     var text = h('div', { class: 'speech' + (evil ? ' evil' : ''), text: lines[0] });
@@ -632,7 +680,10 @@
       acts.appendChild(btn('Tujuan lain', 'btn-secondary', menu));
       acts.appendChild(btn('Tutup', 'btn-secondary', function () { close(); }));
     }
-    function setActs() { acts.textContent = ''; acts.appendChild(next); if (canAsk) acts.appendChild(btn('Tanya arah', 'btn-secondary', menu)); }
+    function setActs() {
+      acts.textContent = ''; acts.appendChild(next);
+      if (km >= 0 && missionStatus(km) !== 'locked') acts.appendChild(btn('Buka Materi (' + learnedCount(km) + '/' + topicsOf(km).length + ')', 'btn-primary', function () { close(); openLibrary(km); }));
+      if (canAsk) acts.appendChild(btn('Tanya arah', 'btn-secondary', menu)); }
     setActs();
     sfx(evil ? 'wrong' : 'hint');
     close = openModal(info.name, [speaker, job, text, acts].filter(Boolean));
@@ -647,6 +698,9 @@
     if (isGate && (st === 'available' || st === 'completed')) {
       body.unshift(h('p', null, h('b', { text: 'Area: ' }), AREAS[p.to].name));
       acts.push(btn('Masuk Area', 'btn-primary', function () { close(); sfx('portal'); if (world) world.enter(p.to); }));
+    } else if (st === 'available' && !learnedAll(i)) {
+      body.push(h('p', { class: 'note', text: 'Belajar dulu! Baca semua materi (' + learnedCount(i) + '/' + topicsOf(i).length + ') dari ' + keeperName(i) + ' agar portal ini terbuka dan kamu bisa melawan ' + (m.enemy ? m.enemy.name : 'musuh') + '.' }));
+      if (world && world.dests) acts.push(btn('Tunjukkan ' + keeperName(i), 'btn-primary', function () { var A0 = AREAS[m.id], d = world.dests().filter(function (q) { return q.type === 'npc' && A0 && q.id === A0.keeper; })[0]; close(); if (d) world.guide(d.x, d.y, keeperName(i)); }));
     } else if (st === 'available' || st === 'completed') {
       acts.push(btn(st === 'completed' ? 'Masuk lagi' : 'Masuk', 'btn-primary', function () { close(); lastPortal = i; lastArea = areaOfMission(i) || 'plaza'; cinematic(i, function () { go('material', i); }); }));
     } else if (st === 'locked') {
@@ -759,6 +813,47 @@
     return { card: card, focus: function () { input.focus({ preventScroll: true }); } };
   }
 
+  /** Panduan bermain bertahap (dibuka otomatis pertama kali, lalu lewat tombol Panduan). */
+  function openGuide(onDone) {
+    var cli = save.settings.controlMode === 'cli', page = 0, close, body = h('div');
+    function sw(c, t) { return h('div', { class: 'legend-row' }, h('span', { class: 'swatch', style: 'background:' + c }), h('span', { text: t })); }
+    var pages = [
+      { t: 'Cara bergerak', n: [
+        h('p', { text: cli ? 'Mode CLI: ketik perintah di kotak Terminal Kontrol, misalnya right 3; up(2); interact(). Ketik help untuk daftar perintah.' : 'Gerakkan karaktermu dengan panah atau WASD. Bisa juga klik tempat tujuan di peta, atau pakai tombol arah di layar.' }),
+        h('p', { text: cli ? 'Perintah interact() berbicara dengan NPC di dekatmu atau membuka portal yang kamu injak.' : 'Tekan Enter, Spasi, atau tombol Aksi untuk berbicara dengan NPC di dekatmu atau membuka portal yang kamu injak.' }),
+        h('p', { class: 'muted', text: 'Mau kode ketik? Ubah Mode kontrol di Pengaturan.' })] },
+      { t: 'Kenali penandanya', n: [h('div', { class: 'legend' },
+        sw('#EAB308', 'KAMU (label kuning dan cincin kuning di kaki): karaktermu.'),
+        sw('#C084FC', 'MATERI (label ungu, aura ungu, titik ungu di minimap): Penyimpan Materi, guru yang menyimpan materi stage.'),
+        sw('#86efac', 'Nama hijau: guru dan warga baik yang menjelaskan materi.'),
+        sw('#f87171', 'Nama merah: penjahat yang menyebar kebiasaan buruk, tapi mengaku dan mengoreksi di akhir.'),
+        sw('#EF4444', 'Tanda ! di atas kepala: NPC yang belum kamu ajak bicara.'))] },
+      { t: 'Alur belajar', n: [h('ol', null,
+        h('li', { text: 'Di Plaza, masuk Gerbang bernomor (mulai dari 1 AKADEMI).' }),
+        h('li', { text: 'Di dalam stage, cari NPC berlabel ungu MATERI lalu pilih Buka Materi.' }),
+        h('li', { text: 'Baca semua topik dan tekan Sudah paham pada tiap topik.' }),
+        h('li', { text: 'Portal Level terbuka (ikon buku berubah jadi nomor). Masuk dan lawan musuhnya.' }),
+        h('li', { text: 'Menang dengan nilai minimal 70, lalu kembali ke Plaza. Gerbang berikutnya terbuka.' }))] },
+      { t: 'Kalau bingung', n: [
+        h('p', null, h('b', { text: 'Tanya arah: ' }), document.createTextNode('bicara dengan NPC baik, pilih Tanya arah, lalu pilih tujuan. Penanda kuning muncul di peta.')),
+        h('p', null, h('b', { text: 'Kartu Petunjuk: ' }), document.createTextNode('di samping peta selalu menampilkan langkah berikutnya, dengan tombol Tunjukkan.')),
+        h('p', null, h('b', { text: 'Nara: ' }), document.createTextNode('pemandu utama di Plaza, siap menjelaskan misi berikutnya.')),
+        h('p', { class: 'muted', text: 'Berbicara dengan NPC tidak mengurangi skor atau XP. Buka Panduan ini lagi lewat tombol Panduan.' })] }
+    ];
+    function show() {
+      body.textContent = '';
+      var pg = pages[page];
+      body.appendChild(h('p', { class: 'guide-step', text: 'Panduan ' + (page + 1) + ' / ' + pages.length + ': ' + pg.t }));
+      pg.n.forEach(function (x) { body.appendChild(x); });
+      var acts = [];
+      if (page > 0) acts.push(btn('Kembali', 'btn-secondary', function () { page--; show(); }));
+      acts.push(page < pages.length - 1 ? btn('Lanjut', 'btn-primary', function () { page++; show(); }) : btn('Mengerti, mulai!', 'btn-primary', function () { close(); }));
+      body.appendChild(h('div', { class: 'row', style: 'margin-top:12px' }, acts));
+    }
+    show();
+    close = openModal('Panduan Bermain', [body], function () { if (onDone) onDone(); });
+  }
+
   function sceneWorld() {
     var p = profile();
     if (!p) { go('profile'); return; }
@@ -776,6 +871,53 @@
       h('div', { class: 'bar green', role: 'progressbar', 'aria-label': 'Misi selesai', 'aria-valuemin': '0', 'aria-valuemax': String(gs.total), 'aria-valuenow': String(gs.done) }, h('i', { style: 'width:' + (gs.done / gs.total * 100) + '%' })));
     var where = h('div', { class: 'card' }, h('h2', { text: 'Lokasi' }), locLabel);
 
+    /* Catatan misi: sticky note di atas peta (pengingat langkah + panduan cepat), selalu tampil, bisa diciutkan */
+    var tipText = h('p', { class: 'tip-text' }), tipList = h('ul', { class: 'note-list' }), tipNote = h('p', { class: 'tip-note', 'aria-live': 'polite' }), tipTarget = null;
+    var isCli0 = save.settings.controlMode === 'cli';
+    var quick = h('p', { class: 'note-quick', text: isCli0 ? 'Panduan cepat: ketik right 3; up(2); interact()' : 'Panduan cepat: panah/WASD jalan • Enter/Spasi bicara • klik peta = jalan otomatis' });
+    function nextStep() {
+      var aid = lastArea, A0 = AREAS[aid]; if (!A0) return { text: '', items: [] };
+      if (aid === 'plaza') {
+        var idx = firstOpenMission();
+        if (idx < 0) return { text: 'Semua misi yang tersedia sudah selesai. Ulangi misi untuk nilai 100, atau tunggu level berikutnya.', items: [{ t: 'Semua misi tersedia selesai', done: true }] };
+        var g = A0.portals.filter(function (q) { return q.kind === 'gate' && q.mission === idx; })[0];
+        return { text: 'Masuk Gerbang ' + MISSIONS[idx].no + (g ? ' (' + g.label + ')' : '') + ' di Plaza.', items: [{ t: 'Masuk Gerbang ' + MISSIONS[idx].no + (g ? ' (' + g.label + ')' : ''), done: false }, { t: 'Cari penyimpan materi (label ungu)', done: false }, { t: 'Baca materi, lalu lawan musuh', done: false }], target: g ? { x: g.x, y: g.y, label: 'Gerbang ' + MISSIONS[idx].no } : null };
+      }
+      var mi = MISSIONS.findIndex(function (m) { return m.id === aid; }); if (mi < 0) return { text: '', items: [] };
+      var st = missionStatus(mi), ex = A0.portals.filter(function (q) { return q.kind === 'exit'; })[0], kn = keeperName(mi);
+      var met = !!talked[A0.keeper] || learnedCount(mi) > 0 || st === 'completed', read = learnedAll(mi), won = st === 'completed';
+      var items = [{ t: 'Temui ' + kn + ' (label ungu MATERI)', done: met }, { t: 'Baca semua materi (' + learnedCount(mi) + '/' + topicsOf(mi).length + ')', done: read }, { t: 'Masuk portal Level ' + MISSIONS[mi].no + ', lawan ' + (MISSIONS[mi].enemy ? MISSIONS[mi].enemy.name : 'musuh'), done: won }, { t: 'Kembali ke Plaza (pintu kuning)', done: false }];
+      if (won) return { text: 'Level ini selesai. Kembali ke Plaza lewat pintu kuning.', items: items, target: ex ? { x: ex.x, y: ex.y, label: 'Pintu keluar' } : null };
+      if (!read) {
+        var d = world && world.dests ? world.dests().filter(function (q) { return q.type === 'npc' && q.id === A0.keeper; })[0] : null;
+        return { text: 'Cari ' + kn + ' (label ungu MATERI, titik ungu di minimap) dan baca semua materi.', items: items, target: d ? { x: d.x, y: d.y, label: kn } : null };
+      }
+      var pt = A0.portals.filter(function (q) { return q.kind === 'mission'; })[0];
+      return { text: 'Materi lengkap! Masuk portal Level ' + MISSIONS[mi].no + ' di ujung peta.', items: items, target: pt ? { x: pt.x, y: pt.y, label: 'Portal Level ' + MISSIONS[mi].no } : null };
+    }
+    function refreshTip() {
+      var st0 = nextStep(), cur0 = -1; tipText.textContent = st0.text; tipTarget = st0.target || null; showBtn.hidden = !tipTarget;
+      tipList.textContent = '';
+      st0.items.forEach(function (it, k) { if (!it.done && cur0 < 0) cur0 = k; });
+      st0.items.forEach(function (it, k) { tipList.appendChild(h('li', { class: it.done ? 'done' : (k === cur0 ? 'now' : ''), text: (it.done ? '✓ ' : (k === cur0 ? '▶ ' : '• ')) + it.t })); });
+    }
+    var showBtn = btn('Tunjukkan', 'btn-primary', function () {
+      var st1 = nextStep(); if (!st1.target || !world) return;
+      world.guide(st1.target.x, st1.target.y, st1.target.label);
+      var dr = directionText(world.pos(), st1.target);
+      tipNote.textContent = st1.target.label + ': ' + dr.text + (save.settings.controlMode === 'cli' && dr.cmd ? ' Ketik: ' + dr.cmd + '.' : '') + ' Cari penanda kuning di peta.';
+      sfx('hint');
+    });
+    var noteMin = false; try { noteMin = localStorage.getItem('gq_note_min') === '1'; } catch (e) { /* abaikan */ }
+    var noteBody = h('div', { class: 'note-body' }, tipText, tipList, quick, h('div', { class: 'row' }, showBtn, btn('Panduan', 'btn-secondary', function () { openGuide(); })), tipNote);
+    var noteToggle = h('button', { type: 'button', class: 'note-toggle', 'aria-label': 'Ciutkan atau tampilkan catatan misi' });
+    var tips = h('aside', { class: 'mission-note tip-card', 'aria-label': 'Catatan misi' }, h('div', { class: 'note-head' }, h('b', { text: 'CATATAN MISI' }), noteToggle), noteBody);
+    function applyNote() { tips.classList.toggle('min', noteMin); noteBody.hidden = noteMin; noteToggle.textContent = noteMin ? '+' : '–'; try { localStorage.setItem('gq_note_min', noteMin ? '1' : '0'); } catch (e) { /* abaikan */ } }
+    noteToggle.addEventListener('click', function () { noteMin = !noteMin; applyNote(); });
+    applyNote();
+    var tipTimer = setInterval(function () { if (document.body.contains(tips)) refreshTip(); }, 700);
+    cleanups.push(function () { clearInterval(tipTimer); });
+
     function padBtn(label, aria) { return h('button', { type: 'button', class: 'btn btn-secondary pad', 'aria-label': aria, text: label }); }
     var up = padBtn('▲', 'Naik'), dn = padBtn('▼', 'Turun'), lf = padBtn('◀', 'Kiri'), rt = padBtn('▶', 'Kanan');
     var act = h('button', { type: 'button', class: 'btn btn-primary pad pad-act', 'aria-label': 'Interaksi', text: 'Aksi' });
@@ -783,10 +925,10 @@
 
     var isCli = save.settings.controlMode === 'cli', moveWord = isCli ? 'perintah ketikan (mis. right 3)' : 'panah atau WASD';
     var cli = isCli ? makeCli() : null;
-    var wrap = h('div', { class: 'pixel-bg scene' }, h('div', { class: 'page' },
-      hudBar(p, [btn('Mode Daftar', 'btn-secondary', function () { setView('list'); }), btn('Pengaturan', 'btn-secondary', openSettings)]),
+    var wrap = h('div', { class: 'pixel-bg scene' }, h('div', { class: 'page page-world' },
+      hudBar(p, [btn('Panduan', 'btn-secondary', function () { openGuide(); }), btn('Mode Daftar', 'btn-secondary', function () { setView('list'); }), btn('Pengaturan', 'btn-secondary', openSettings)]),
       h('div', { class: 'world-layout' },
-        h('section', { 'aria-label': 'Dunia' }, canvas, hint),
+        h('section', { 'aria-label': 'Dunia' }, h('div', { class: 'world-stage' }, canvas, tips), hint),
         h('aside', { class: 'side' }, where, quest,
           isCli ? cli.card : h('div', { class: 'card' }, h('h2', { text: 'Kontrol' }), dpad,
             h('div', { class: 'row', style: 'justify-content:center;margin-top:8px' }, btn('Lambai (F)', 'btn-secondary', function () { if (world) world.emote(); })),
@@ -811,16 +953,21 @@
       unlock: unlockNow >= 0 ? unlockNow : null,
       alert: function (id, n) {
         if (id === 'nara') return !talked.nara && (unlockNow >= 0 || profile().completedMissions.length === 0);
+        var kmi = keeperMission(id);
+        if (kmi >= 0 && missionStatus(kmi) === 'available' && !learnedAll(kmi)) return true;   // penyimpan materi: tanda ! sampai semua topik dibaca
         return !talked[id] && lastArea !== 'plaza' && !!n;
       },
-      getStatus: missionStatus,
+      keeper: function (id) { var k = keeperMission(id); return k < 0 ? 0 : (learnedAll(k) ? 2 : 1); },
+      getStatus: function (i, p) { var st = missionStatus(i); return (p && p.kind === 'mission' && st === 'available' && !learnedAll(i)) ? 'study' : st; },
       reduceMotion: function () { return !!save.settings.reduceMotion; },
       onArea: function (A) {
         lastArea = A.id;
         locLabel.textContent = '';
         locLabel.appendChild(h('b', { text: A.name })); locLabel.appendChild(h('br')); locLabel.appendChild(document.createTextNode(A.sub || ''));
-        hint.textContent = A.id === 'plaza' ? 'Jelajahi Plaza dengan ' + moveWord + '. Masuk gerbang bernomor untuk membuka peta stage.' : 'Ajak bicara NPC: nama hijau = guru, nama merah = penjahat. Portal level ada di ujung peta.';
-        if (A.id !== 'plaza') sfx('portal');
+        hint.textContent = A.id === 'plaza' ? 'Jelajahi Plaza dengan ' + moveWord + '. Masuk gerbang bernomor untuk membuka peta stage.' : 'Ajak bicara NPC: nama hijau = guru, nama merah = penjahat. Bacalah semua materi dari penyimpan materi (tanda !) agar portal level di ujung peta terbuka.';
+        if (A.id !== 'plaza') { sfx('portal'); var smi = MISSIONS.findIndex(function (m) { return m.id === A.id; }); if (smi >= 0 && missionStatus(smi) === 'available' && !learnedAll(smi)) toast('Cari ' + keeperName(smi) + ' (label ungu MATERI) untuk membuka materi.'); }
+        if (typeof refreshTip === 'function') refreshTip();
+        if (typeof tips !== 'undefined' && tips && !window.GQ_FAST) { tips.classList.add('dim'); setTimeout(function () { tips.classList.remove('dim'); }, 3200); }   // catatan memudar sementara agar nama zona terbaca jelas
       },
       onPortal: function (pt) { portalDialog(pt); },
       onNpc: function (id) { talk(id); },
@@ -832,6 +979,8 @@
       }
     });
     if (window.GQ_FAST) window.__world = world;   // hanya untuk tes otomatis
+    refreshTip();
+    if (!p.guideSeen && !window.GQ_FAST) setTimeout(function () { if (document.body.contains(tips) && !document.getElementById('modal-root').childElementCount) openGuide(function () { p.guideSeen = true; persist(); }); }, 700);
     if (unlockNow >= 0) setTimeout(function () { toast('Gerbang Level ' + MISSIONS[unlockNow].no + ' terbuka! Masuk lewat Plaza.'); sfx('unlock'); }, 700);
     if (isCli) cli.focus();
     else {

@@ -247,13 +247,13 @@
   /* ---------- jobdesk NPC: peran tiap karakter (tampil di dialog) ---------- */
   var JOBS = {
     nara: 'Pemandu Utama · petunjuk arah & misi', bugbyte: 'Asisten Teknis · kontrol & petunjuk soal', dev1: 'Developer Senior · cerita pengalaman', dev2: 'Developer Magang · analogi mudah',
-    prof: 'Guru VCS · dasar version control', sage1: 'Guru Arsitektur · terpusat vs terdistribusi',
-    stage1: 'Guru Tiga Zona · alur kerja Git', status1: 'Penjaga Status · status berkas', bbzone: 'Pemindai · alur status berkas',
-    config1: 'Guru Konfigurasi · git config', init1: 'Guru Repositori · git init',
-    log1: 'Pustakawan · git log', bbcmd: 'Pemeriksa · git status & diff', add1: 'Kapten Staging · git add',
-    mcommit: 'Guru Commit · git commit', conv: 'Guru Konvensi · pesan commit', tips5: 'Pemberi Tips · kebiasaan commit',
-    vault1: 'Penjaga Brankas · .gitignore', secret1: 'Ahli Keamanan · berkas rahasia',
-    mmerge: 'Guru Ringkasan · materi final', narafinal: 'Pemandu Bos Terakhir · tips ujian'
+    prof: 'Penyimpan Materi · VCS & Git', sage1: 'Guru Arsitektur · terpusat vs terdistribusi',
+    stage1: 'Penyimpan Materi · tiga zona Git', status1: 'Penjaga Status · status berkas', bbzone: 'Pemindai · alur status berkas',
+    config1: 'Penyimpan Materi · config & init', init1: 'Guru Repositori · git init',
+    log1: 'Penyimpan Materi · perintah dasar', bbcmd: 'Pemeriksa · git status & diff', add1: 'Kapten Staging · git add',
+    mcommit: 'Penyimpan Materi · commit', conv: 'Guru Konvensi · pesan commit', tips5: 'Pemberi Tips · kebiasaan commit',
+    vault1: 'Penyimpan Materi · .gitignore', secret1: 'Ahli Keamanan · berkas rahasia',
+    mmerge: 'Penyimpan Materi · ringkasan final', narafinal: 'Pemandu Bos Terakhir · tips ujian'
   };
   var AREA_ROLE = { plaza: 'Warga Plaza', vcs: 'Siswa Akademi', 'three-zones': 'Siswa Tiga Zona', setup: 'Siswa Menara Setup', commands: 'Siswa Lab Perintah', commit: 'Siswa Bengkel Commit', gitignore: 'Siswa Gudang Rahasia', final: 'Siswa Benteng' };
   Object.keys(A).forEach(function (aid) {
@@ -315,6 +315,13 @@
     ]
   };
   window.GQ_CHATS = CHATS;
+
+  // NPC penyimpan materi tiap stage: buka perpustakaan materi stage itu. Semua topik harus dibaca agar portal Level terbuka.
+  var KEEPERS = { vcs: 'prof', 'three-zones': 'stage1', setup: 'config1', commands: 'log1', commit: 'mcommit', gitignore: 'vault1', final: 'mmerge' };
+  Object.keys(KEEPERS).forEach(function (aid) {
+    A[aid].keeper = KEEPERS[aid];
+    A[aid].npcs.forEach(function (n) { if (n.id === KEEPERS[aid]) n.wander = 7; });   // room master berkeliling bebas di sekitar zonanya
+  });
 
   // efek layar khas tiap wilayah (digambar js/world.js)
   var FX = { plaza: 'lanterns', vcs: 'pages', 'three-zones': 'orbs', setup: 'sparks', commands: 'rain', commit: 'forge', gitignore: 'laser', final: 'storm' };

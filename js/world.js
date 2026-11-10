@@ -91,6 +91,16 @@
     pois.forEach(function (p) { if (!p.wander) carve(sp.x, sp.y, p.x, p.y); });
     Object.keys(c.path).forEach(function (k) { var a = k.split(','), px = +a[0], py = +a[1]; for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) mask[key(px + dx, py + dy)] = 1; });
     pois.forEach(function (p) { for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) mask[key(p.x + dx, p.y + dy)] = 1; });
+    // bangunan portal: gedung 3x3 ubin, bisa dilewati dari sisi mana pun (memudar saat pemain di dalamnya)
+    var occ = {}; pois.forEach(function (q) { occ[key(q.x, q.y)] = 1; }); occ[key(sp.x, sp.y)] = 1;
+    A.portals.forEach(function (p) {
+      for (var bdx = -1; bdx <= 1; bdx++) for (var bdy = -2; bdy <= 0; bdy++) {
+        if (!bdx && !bdy) continue;
+        var kk = key(p.x + bdx, p.y + bdy);
+        if (wall(p.x + bdx, p.y + bdy) || occ[kk]) continue;
+        mask[kk] = 1;   // bebas dekorasi, tetap bisa dilewati
+      }
+    });
     for (var y = 1; y < c.H - 1; y++) for (var x = 1; x < c.W - 1; x++) {
       if (mask[key(x, y)]) continue;
       if (r() < th.dens) { var t = th.decor[Math.floor(r() * th.decor.length)]; c.decor.push({ x: x, y: y, t: t }); c.blocked[key(x, y)] = t; }
@@ -302,7 +312,7 @@
     function portalStatus(p, t) {
       if (p.kind === 'exit') return 'exit';
       if (p === unlockPortal && (!unlockT0 || t - unlockT0 < 800)) return 'locked';
-      return opts.getStatus(p.mission);
+      return opts.getStatus(p.mission, p);
     }
     function snapCam() {
       camX = Math.max(0, Math.min(cur.W * T - canvas.width, rx * T + T / 2 - canvas.width / 2));
@@ -312,7 +322,7 @@
     function load(id) {
       cur = compile(id);
       var t0 = performance.now();
-      npcs = cur.A.npcs.map(function (n) { return Object.assign({}, n, { hx: n.x, hy: n.y, rx: n.x, ry: n.y, face: 1, parts: [], nextFx: t0 + Math.random() * 600, nextMove: t0 + 600 + Math.random() * 2500, nextSay: t0 + 4000 + Math.random() * 9000 }); });
+      npcs = cur.A.npcs.map(function (n) { return Object.assign({}, n, { keeper: cur.A.keeper === n.id, hx: n.x, hy: n.y, rx: n.x, ry: n.y, face: 1, parts: [], nextFx: t0 + Math.random() * 600, nextMove: t0 + 600 + Math.random() * 2500, nextSay: t0 + 4000 + Math.random() * 9000 }); });
       pathList = Object.keys(cur.path).map(function (k) { var a = k.split(','); return { x: +a[0], y: +a[1] }; });
       motes = [];
       var n = Math.round(cur.W * cur.H / 24);
@@ -327,7 +337,7 @@
         for (var i = 0; i < c.A.portals.length; i++) {
           var p = c.A.portals[i];
           if (p.to !== from) continue;
-          var order = p.y > c.H / 2 ? [[0, -1], [-1, 0], [1, 0], [0, 1]] : [[0, 1], [-1, 0], [1, 0], [0, -1]];
+          var order = [[0, 1], [-1, 0], [1, 0], [0, -1]];   // selatan dulu: keluar di depan pintu gedung
           for (var j = 0; j < order.length; j++) {
             var sx = p.x + order[j][0], sy = p.y + order[j][1];
             if (!c.wall(sx, sy) && !c.blocked[key(sx, sy)] && !npcBlockSet(c)[key(sx, sy)] && !c.A.portals.some(function (q) { return q.x === sx && q.y === sy; })) return { x: sx, y: sy };
@@ -492,7 +502,7 @@
       if (window.GQ_FAST || modalOpen() || calmNow()) return;
       npcs.forEach(function (n) {
         if (!n.wander || n.chatting || now < n.nextMove) return;
-        n.nextMove = now + 900 + Math.random() * 2800;
+        n.nextMove = now + (n.keeper ? 600 + Math.random() * 1500 : 900 + Math.random() * 2800);
         if (Math.random() < .25) return;
         var d = D4[Math.floor(Math.random() * 4)], nx = n.x + d[0], ny = n.y + d[1];
         if (Math.abs(nx - n.hx) > n.wander || Math.abs(ny - n.hy) > n.wander) return;
@@ -658,9 +668,123 @@
       ctx.fillStyle = col; ctx.fillRect(cx - w / 2, ty, w, 13);
       ctx.fillStyle = '#0b1220'; ctx.fillText(text, cx, ty + 7);
     }
+    /* ---------- bangunan portal: tiap gerbang/portal berupa gedung sesuai namanya (96x96, pintu di ubin portal) ---------- */
+    var bTmp = null;
+    function drawBuilding(p, t, st, fade) {
+      var bx = (p.x - 1) * T, by = (p.y - 2) * T, ox = bx, oy = by, real = null;
+      if (bx + 96 < camX || bx > camX + canvas.width || by + 96 < camY || by > camY + canvas.height) return;
+      if (fade < 1) {   // gambar ke kanvas sementara agar seluruh gedung memudar rata
+        if (!bTmp) { bTmp = document.createElement('canvas'); bTmp.width = bTmp.height = 96; }
+        real = ctx; ctx = bTmp.getContext('2d'); ctx.clearRect(0, 0, 96, 96); ox = 0; oy = 0;
+      }
+      var type = p.kind === 'gate' ? p.to : (p.kind === 'mission' ? (cur.id === 'vcs' ? 'room' : 'mx_' + cur.id) : 'exit'), calm = calmNow(), tt = calm ? 0 : t;
+      var lit = st !== 'locked' && st !== 'soon' && st !== 'study', i, k;
+      function R(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
+      function bricks(x, y, w, h, base, line) { R(x, y, w, h, base); for (var yy = 4; yy < h; yy += 8) R(x, y + yy, w, 1, line); for (var r2 = 0, yy2 = 0; yy2 < h; yy2 += 8, r2++) for (var xx = (r2 % 2) * 6; xx < w; xx += 12) R(x + xx, y + yy2, 1, 4, line); }
+      function glow(x, y, w, h, c, a) { ctx.globalAlpha = a; R(x, y, w, h, c); }
+      ctx.save(); ctx.translate(ox, oy);
+      ctx.globalAlpha = .3; R(4, 90, 90, 6, '#000'); ctx.globalAlpha = lit ? 1 : .78;
+      if (type.indexOf('mx_') === 0) {   // portal matriks: bingkai digital + hujan kode, bentuk dan warna beda per stage
+        var mk = type.slice(3), MC = { 'three-zones': '#a78bfa', setup: '#22d3ee', commands: '#4ade80', commit: '#fb923c', gitignore: '#f472b6', final: '#ef4444' }[mk] || '#60a5fa';
+        if (mk === 'three-zones') MC = ['#fde047', '#38bdf8', '#a78bfa'][Math.floor(tt / 900) % 3];
+        var FR = { 'three-zones': '#312e81', setup: '#134e4a', commands: '#052e16', commit: '#431407', gitignore: '#3f1d2e', final: '#2b0a0a' }[mk] || '#1e293b';
+        R(10, 6, 76, 90, '#0b1220'); R(12, 8, 72, 88, FR); R(16, 12, 64, 84, '#020617');
+        if (mk === 'three-zones') { R(10, 6, 76, 4, MC); R(16, 12, 64, 2, MC); } else if (mk === 'gitignore') { for (i = 0; i < 9; i++) R(12 + i * 8, 8, 4, 4, '#facc15'); } else if (mk === 'commit') { R(26, 2, 44, 8, '#57534e'); R(34, 0, 28, 4, '#78716c'); }
+        ctx.save(); ctx.beginPath(); ctx.rect(16, 12, 64, 84); ctx.clip();
+        for (i = 0; i < 8; i++) {   // hujan kode: kepala terang + ekor memudar
+          var sp2 = .5 + (i % 3) * .35, hy = lit ? ((tt / 22 * sp2 + i * 23) % 100) - 6 : 20 + i * 7;
+          for (k = 0; k < 7; k++) { ctx.globalAlpha = lit ? Math.max(0, 1 - k * .16) * .9 : .22; R(18 + i * 8, 12 + hy - k * 5, 4, 4, k === 0 ? '#f9fafb' : MC); }
+        }
+        ctx.globalAlpha = lit ? .12 + (calm ? .05 : .07 * (1 + Math.sin(tt / 400))) : .05; R(16, 12, 64, 84, MC); ctx.globalAlpha = 1;
+        if (mk === 'setup') { ctx.save(); ctx.translate(48, 42); ctx.rotate(tt / 700); ctx.strokeStyle = MC; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 12, 0, 6.3); ctx.stroke(); for (i = 0; i < 6; i++) { ctx.rotate(Math.PI / 3); R(-2, -17, 4, 6, MC); } ctx.restore(); }
+        else if (mk === 'three-zones') { for (i = 0; i < 3; i++) { var oa = tt / 500 + i * 2.09; R(Math.round(48 + Math.cos(oa) * 16) - 3, Math.round(40 + Math.sin(oa) * 10) - 3, 6, 6, ['#fde047', '#38bdf8', '#a78bfa'][i]); } }
+        else if (mk === 'commands') { var by1 = 12 + ((tt / 12) % 84); ctx.globalAlpha = .5; R(16, by1, 64, 3, '#f0fdf4'); ctx.globalAlpha = 1; }
+        else if (mk === 'commit') { for (i = 0; i < 6; i++) { var ey = 96 - ((tt / 30 + i * 15) % 84); ctx.globalAlpha = .9; R(20 + (i * 13) % 52 + Math.sin(tt / 200 + i) * 3, ey, 3, 3, i % 2 ? '#fde047' : '#f97316'); } ctx.globalAlpha = 1; }
+        else if (mk === 'gitignore') { ctx.globalAlpha = .7; ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2; var lz = (Math.sin(tt / 450) + 1) / 2 * 60; ctx.beginPath(); ctx.moveTo(16, 14 + lz); ctx.lineTo(80, 74 - lz); ctx.moveTo(16, 74 - lz); ctx.lineTo(80, 14 + lz); ctx.stroke(); ctx.globalAlpha = 1; }
+        else if (mk === 'final') { ctx.save(); ctx.translate(48, 44); for (i = 0; i < 4; i++) { ctx.save(); ctx.rotate(tt / (500 + i * 220) * (i % 2 ? -1 : 1)); ctx.strokeStyle = i % 2 ? '#f97316' : '#ef4444'; ctx.lineWidth = 2; var q = 8 + i * 6; ctx.strokeRect(-q, -q, q * 2, q * 2); ctx.restore(); } ctx.restore(); if (lit && !calm && Math.sin(tt / 170) * Math.sin(tt / 61) > .85) { ctx.globalAlpha = .55; R(16, 12, 64, 84, '#fecaca'); ctx.globalAlpha = 1; } }
+        ctx.restore();
+        R(34, 68, 28, 28, '#020617'); R(32, 66, 32, 2, MC);
+      } else if (type === 'room') {   // ruang kelas di dalam Akademi: papan tulis bertulisan, jam berdetak, lampu, meja
+        R(4, 8, 88, 88, '#5b3a1e'); R(7, 11, 82, 82, '#e7d8b8'); R(7, 11, 82, 6, '#c9b48a'); R(7, 66, 82, 3, '#8b6a3e');
+        ctx.globalAlpha = lit ? (calm || Math.sin(tt / 90) > -.9 ? 1 : .6) : .5; R(40, 11, 16, 3, '#fff7c2'); ctx.globalAlpha = lit ? .14 : .05; R(34, 14, 28, 30, '#fff7c2'); ctx.globalAlpha = lit ? 1 : .78;
+        R(14, 22, 50, 28, '#7c4a2d'); R(16, 24, 46, 24, '#14532d');
+        var wl = Math.floor(tt / 500);
+        for (i = 0; i < 4; i++) { var ww = 10 + (((wl + i) * 29) % 28); if (lit || i < 1) R(19, 28 + i * 5, Math.min(ww, 38), 2, i === 3 ? '#fde047' : '#f3f4f6'); }
+        if (lit && (calm || Math.floor(tt / 350) % 2)) R(19, 28 + 3 * 5 + 3, 4, 2, '#fde047');
+        R(18, 49, 10, 2, '#f3f4f6'); R(68, 24, 16, 16, '#7c4a2d'); R(70, 26, 12, 12, '#f9fafb');
+        var ang = tt / 1000; R(75, 31, 2, 2, '#111827'); R(75 + Math.round(Math.cos(ang) * 4), 31 + Math.round(Math.sin(ang) * 4), 2, 2, '#ef4444'); R(75 + Math.round(Math.cos(ang / 12) * 3), 31 + Math.round(Math.sin(ang / 12) * 3), 2, 2, '#111827');
+        R(12, 56, 18, 8, '#a16207'); R(14, 64, 2, 6, '#78350f'); R(26, 64, 2, 6, '#78350f'); R(66, 56, 18, 8, '#a16207'); R(68, 64, 2, 6, '#78350f'); R(80, 64, 2, 6, '#78350f');
+        R(34, 68, 28, 28, '#3b2410'); R(36, 70, 24, 26, '#111827'); R(40, 73, 16, 9, lit ? '#fde68a' : '#6b7280');
+      } else if (type === 'vcs') {   // gedung akademi: kolom, pediment, jendela menyala, bendera berkibar
+        for (k = 0; k < 10; k++) R(48 - (6 + k * 4), 8 + k * 3, (6 + k * 4) * 2, 3, k % 2 ? '#b45309' : '#c2410c');
+        R(4, 38, 88, 4, '#78350f'); bricks(6, 42, 84, 54, '#7c4a2d', '#6b3f26');
+        R(12, 42, 6, 54, '#e5e7eb'); R(78, 42, 6, 54, '#e5e7eb'); R(10, 40, 10, 3, '#f3f4f6'); R(76, 40, 10, 3, '#f3f4f6');
+        for (i = 0; i < 2; i++) { var wx = i ? 58 : 24; R(wx, 48, 14, 16, '#1f2937'); if (lit && Math.sin(tt / 700 + i * 2) > -.4) R(wx + 1, 49, 12, 14, '#fde047'); R(wx + 6, 48, 2, 16, '#1f2937'); }
+        R(46, 0, 2, 12, '#e5e7eb'); for (i = 0; i < 10; i++) R(48 + i, 1 + Math.round(Math.sin(tt / 200 + i * .6) * 1.5), 1, 6, '#ef4444');
+        R(36, 66, 24, 30, '#1f2937');
+      } else if (type === 'three-zones') {   // tiga menara: Working / Staging / Repository menyala bergantian
+        var zc = ['#fde047', '#38bdf8', '#a78bfa'], zl = ['W', 'S', 'R'], act = Math.floor(tt / 800) % 3;
+        R(4, 18, 88, 8, '#4c1d95'); R(8, 26, 80, 70, '#312e81');
+        for (i = 0; i < 3; i++) {
+          var zx = 10 + i * 26; R(zx, 30, 22, 36, '#1e1b4b');
+          ctx.globalAlpha = (lit && (calm || i === act)) ? 1 : .35; R(zx + 2, 32, 18, 32, zc[i]); ctx.globalAlpha = lit ? 1 : .78;
+          R(zx + 8, 42, 6, 2, '#1e1b4b'); R(zx + 9, 40, 4, 12, '#1e1b4b'); R(zx + 5, 54, 12, 3, '#1e1b4b');
+        }
+        R(32, 66, 32, 30, '#111827'); R(44, 12, 8, 8, zc[act]);
+      } else if (type === 'setup') {   // bengkel setup: roda gigi berputar + percik
+        R(6, 40, 84, 6, '#0f766e'); R(10, 46, 76, 50, '#134e4a');
+        for (i = 0; i < 2; i++) { var sx = i ? 62 : 16; R(sx, 52, 18, 14, '#042f2e'); if (lit && Math.sin(tt / 300 + i * 3) > -.3) R(sx + 1, 53, 16, 12, '#22d3ee'); }
+        ctx.save(); ctx.translate(48, 22); ctx.rotate(tt / 700);
+        R(-8, -8, 16, 16, '#22d3ee'); for (i = 0; i < 8; i++) { ctx.save(); ctx.rotate(i * Math.PI / 4); R(-3, -15, 6, 7, '#22d3ee'); ctx.restore(); }
+        R(-3, -3, 6, 6, '#134e4a'); ctx.restore();
+        if (lit && !calm) for (i = 0; i < 4; i++) { var spp = ((tt / 90 + i * 7) % 12); ctx.globalAlpha = 1 - spp / 12; R(70 + (i * 5) % 14, 60 - spp * 2, 2, 2, '#fde047'); }
+        ctx.globalAlpha = lit ? 1 : .78; R(34, 66, 28, 30, '#042f2e');
+      } else if (type === 'commands') {   // gedung terminal: layar hijau dengan teks bergulir & kursor
+        R(6, 6, 84, 90, '#4ade80'); R(9, 9, 78, 84, '#052e16');
+        R(14, 12, 68, 46, '#021a0b'); var sc = Math.floor(tt / 220);
+        for (i = 0; i < 6; i++) { if (lit) R(18, 16 + i * 7, 8 + (((sc + i) * 37) % 42), 3, i % 3 === 0 ? '#86efac' : '#22c55e'); }
+        if (lit && (calm || Math.floor(tt / 400) % 2)) R(18, 16 + 42, 6, 3, '#f0fdf4');
+        R(14, 60, 68, 4, '#166534'); R(30, 64, 36, 32, '#021a0b');
+        for (i = 0; i < 8; i++) R(16 + i * 8, 54, 5, 3, '#14532d');
+      } else if (type === 'commit') {   // bengkel commit: cerobong berasap, tungku menyala
+        bricks(8, 38, 80, 58, '#7c2d12', '#431407'); R(4, 30, 88, 10, '#431407');
+        R(66, 6, 14, 26, '#57534e'); R(64, 4, 18, 4, '#44403c');
+        if (!calm) for (k = 0; k < 4; k++) { var yy = (tt / 40 + k * 12) % 44; ctx.globalAlpha = (1 - yy / 44) * .7; R(70 + Math.sin(tt / 300 + k) * 4, 4 - yy * .5, 5 + yy / 8, 5 + yy / 8, '#9ca3af'); }
+        ctx.globalAlpha = lit ? 1 : .78; R(14, 48, 28, 20, '#1c1917');
+        if (lit) { var fl = .6 + .4 * Math.sin(tt / 90) * Math.sin(tt / 37); R(16, 50, 24, 16, '#f97316'); ctx.globalAlpha = fl; R(20, 54, 16, 10, '#fde047'); ctx.globalAlpha = 1; }
+        R(60, 70, 18, 4, '#6b7280'); R(65, 74, 8, 6, '#4b5563'); R(34, 66, 26, 30, '#1c1917');
+      } else if (type === 'gitignore') {   // brankas baja: roda putar, lampu alarm, laser pemindai
+        R(4, 10, 88, 86, '#374151'); R(8, 14, 80, 78, '#4b5563'); R(4, 10, 88, 6, '#facc15');
+        for (i = 0; i < 11; i++) R(4 + i * 8, 10, 4, 6, '#111827');
+        for (i = 0; i < 4; i++) R(12 + (i % 2) * 74, 22 + Math.floor(i / 2) * 36, 3, 3, '#9ca3af');
+        ctx.save(); ctx.translate(48, 40); ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0, 0, 18, 0, 6.3); ctx.stroke();
+        ctx.rotate(tt / 900); ctx.lineWidth = 3; for (i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 16); ctx.stroke(); } R(-4, -4, 8, 8, '#facc15'); ctx.restore();
+        ctx.globalAlpha = lit ? (calm || Math.floor(tt / 350) % 2 ? 1 : .25) : .3; R(78, 20, 6, 6, '#ef4444'); ctx.globalAlpha = lit ? 1 : .78;
+        if (lit && !calm) { ctx.globalAlpha = .55; R(10, 22 + Math.round((Math.sin(tt / 500) + 1) * 18), 76, 2, '#ef4444'); ctx.globalAlpha = 1; }
+        R(32, 66, 32, 30, '#111827'); R(32, 66, 32, 2, '#facc15');
+      } else if (type === 'final') {   // benteng: dua menara, panji merah, mata bos berdenyut, bara lava
+        R(0, 14, 24, 82, '#2b171a'); R(72, 14, 24, 82, '#2b171a'); R(14, 34, 68, 62, '#1f1315');
+        for (i = 0; i < 3; i++) { R(i * 8, 8, 6, 8, '#2b171a'); R(72 + i * 8, 8, 6, 8, '#2b171a'); }
+        for (i = 0; i < 7; i++) R(16 + i * 10, 28, 6, 8, '#1f1315');
+        for (i = 0; i < 2; i++) { var fx0 = i ? 84 : 12; R(fx0, 0, 2, 12, '#9ca3af'); for (k = 0; k < 8; k++) R(fx0 + 2 + k, 1 + Math.round(Math.sin(tt / 180 + k * .7 + i) * 1.5), 1, 6, '#dc2626'); }
+        for (i = 0; i < 2; i++) { R(6 + i * 72, 34, 12, 14, '#0b0507'); if (lit && Math.sin(tt / 260 + i * 2.1) > -.5) R(8 + i * 72, 36, 8, 10, '#ef4444'); }
+        var ey = lit ? 5 + Math.sin(tt / 300) * 2 : 3; R(38, 40, 20, 10, '#0b0507'); R(44 - ey / 2 + 2, 42, 8 + ey / 2, 6, lit ? '#ef4444' : '#7f1d1d'); R(47, 43, 2, 4, '#0b0507');
+        ctx.globalAlpha = lit ? .35 + .25 * Math.sin(tt / 250) : .15; R(14, 90, 68, 6, '#f97316'); ctx.globalAlpha = lit ? 1 : .78;
+        R(32, 66, 32, 30, '#0b0507');
+      } else {   // pintu keluar: gapura batu dengan rune kuning
+        R(8, 24, 16, 72, '#6b7280'); R(72, 24, 16, 72, '#6b7280'); R(6, 14, 84, 14, '#9ca3af'); R(40, 10, 16, 8, '#d1d5db');
+        for (i = 0; i < 6; i++) { R(10, 28 + i * 12, 12, 1, '#4b5563'); R(74, 28 + i * 12, 12, 1, '#4b5563'); }
+        ctx.globalAlpha = .12 + (calm ? .06 : .08 * (1 + Math.sin(tt / 380))); R(24, 28, 48, 68, '#EAB308'); ctx.globalAlpha = 1;
+        if (!calm) for (i = 0; i < 5; i++) { var ry2 = 96 - ((tt / 25 + i * 17) % 68); ctx.globalAlpha = .8; R(28 + (i * 11) % 38, ry2, 3, 3, '#fde047'); }
+      }
+      ctx.globalAlpha = 1;
+      if (st === 'completed') { R(78, 2, 14, 14, '#0b1220'); R(80, 4, 10, 10, '#22C55E'); R(82, 9, 2, 2, '#0b1220'); R(84, 11, 2, 2, '#0b1220'); R(86, 7, 2, 2, '#0b1220'); }
+      ctx.restore();
+      if (real) { ctx = real; ctx.globalAlpha = fade; ctx.drawImage(bTmp, bx, by); ctx.globalAlpha = 1; }
+    }
     function drawPortal(p, t) {
       var st = portalStatus(p, t), i = p.mission || 0, calm = calmNow();
-      var col = st === 'exit' ? '#EAB308' : (STATUS_COLOR[st] || STATUS_COLOR.locked);
+      var col = st === 'exit' || st === 'study' ? '#EAB308' : (STATUS_COLOR[st] || STATUS_COLOR.locked);
       if (p.mission === opts.finalIndex && st === 'available') col = '#EF4444';
       var cx = p.x * T + T / 2, cy = p.y * T + T / 2;
       var pulse = calm ? 0 : Math.sin(t / 380 + i);
@@ -680,6 +804,8 @@
       } else if (st === 'completed') {
         ctx.fillStyle = '#22C55E';
         [[-6, 0], [-4, 2], [-2, 4], [0, 2], [2, 0], [4, -2], [6, -4]].forEach(function (d) { ctx.fillRect(cx + d[0] - 1, cy + d[1] - 1, 3, 3); });
+      } else if (st === 'study') {   // belum membaca semua materi: ikon buku
+        ctx.fillStyle = '#EAB308'; ctx.fillRect(cx - 8, cy - 6, 16, 12); ctx.fillStyle = '#0b1220'; ctx.fillRect(cx - 1, cy - 6, 2, 12); ctx.fillStyle = '#F9FAFB'; ctx.fillRect(cx - 6, cy - 3, 4, 1); ctx.fillRect(cx - 6, cy, 4, 1); ctx.fillRect(cx + 2, cy - 3, 4, 1); ctx.fillRect(cx + 2, cy, 4, 1);
       } else if (st === 'locked' || st === 'soon') {
         ctx.fillStyle = '#9CA3AF'; ctx.fillRect(cx - 5, cy - 1, 10, 8); ctx.fillRect(cx - 3, cy - 6, 2, 5); ctx.fillRect(cx + 1, cy - 6, 2, 5); ctx.fillRect(cx - 3, cy - 6, 6, 2);
         ctx.fillStyle = '#111827'; ctx.fillRect(cx - 1, cy + 2, 2, 3);
@@ -709,7 +835,17 @@
       ctx.strokeStyle = cur.th.edge; ctx.lineWidth = 2; ctx.strokeRect(mx - 3, my - 3, m.width + 6, m.height + 6);
       ctx.drawImage(m, mx, my);
       cur.A.portals.forEach(function (p) { var st = portalStatus(p, t); ctx.fillStyle = st === 'exit' ? '#EAB308' : (STATUS_COLOR[st] || '#6B7280'); ctx.fillRect(mx + p.x * S - 1, my + p.y * S - 1, S + 2, S + 2); });
-      npcs.forEach(function (n) { ctx.fillStyle = n.kind === 'evil' ? '#EF4444' : '#22C55E'; ctx.fillRect(mx + n.x * S, my + n.y * S, S, S); });
+      npcs.forEach(function (n) {
+        if (n.keeper) return;
+        ctx.fillStyle = n.kind === 'evil' ? '#EF4444' : '#22C55E'; ctx.fillRect(mx + n.x * S, my + n.y * S, S, S);
+      });
+      npcs.forEach(function (n) {   // room master: berlian emas besar dengan cincin berdenyut (hijau bila materi sudah dibaca)
+        if (!n.keeper) return;
+        var kd = opts.keeper && opts.keeper(n.id) === 2, kcx = mx + n.x * S + S / 2, kcy = my + n.y * S + S / 2, kc2 = kd ? '#86efac' : '#C084FC';
+        if (!calmNow()) { var kr = 3 + (t / 90) % 8; ctx.globalAlpha = Math.max(0, .8 - kr / 11); ctx.strokeStyle = kc2; ctx.lineWidth = 1; ctx.strokeRect(kcx - kr, kcy - kr, kr * 2, kr * 2); ctx.globalAlpha = .88; }
+        ctx.fillStyle = '#0b1220'; ctx.fillRect(kcx - 5, kcy - 5, 10, 10);
+        ctx.fillStyle = kc2; ctx.fillRect(kcx - 1, kcy - 4, 2, 8); ctx.fillRect(kcx - 4, kcy - 1, 8, 2); ctx.fillRect(kcx - 3, kcy - 3, 6, 6);
+      });
       ctx.strokeStyle = 'rgba(249,250,251,.45)'; ctx.lineWidth = 1; ctx.strokeRect(mx + camX / T * S + .5, my + camY / T * S + .5, VW * S, VH * S);
       var pmx = mx + Math.round(rx) * S + S / 2, pmy = my + Math.round(ry) * S + S / 2, pg = calmNow() ? 0 : (t / 60) % 14;   // penanda pemain di minimap: titik besar + gelombang
       if (!calmNow()) { ctx.globalAlpha = Math.max(0, .7 - pg / 14 * .7); ctx.strokeStyle = '#EAB308'; ctx.lineWidth = 1; ctx.strokeRect(pmx - 3 - pg, pmy - 3 - pg, 6 + pg * 2, 6 + pg * 2); ctx.globalAlpha = .88; }
@@ -750,7 +886,6 @@
         for (var b = 0; b < 40; b++) { var ang = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 3; sparks.push({ x: unlockPortal.x * T + T / 2, y: unlockPortal.y * T + T / 2, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: 1, c: Math.random() < .5 ? '#60a5fa' : '#EAB308' }); }
         canvas.classList.add('unlocking'); setTimeout(function () { canvas.classList.remove('unlocking'); }, 700);
       }
-      cur.A.portals.forEach(function (p) { drawPortal(p, t); });
       if (marker) {   // penanda tujuan klik
         var ma = 1 - (now - marker.t) / 700;
         if (ma <= 0) marker = null;
@@ -776,6 +911,10 @@
           if (evil && !calm) {   // aura merah berdenyut di kaki NPC jahat
             ctx.globalAlpha = .18 + .12 * Math.sin(t / 260 + n.x); ctx.fillStyle = '#EF4444'; ctx.fillRect(n.rx * T - 2, n.ry * T + T - 10, T + 4, 9); ctx.globalAlpha = 1;
           }
+          if (n.keeper) {   // room master: aura emas + bintang mengorbit
+            ctx.globalAlpha = calm ? .3 : .26 + .14 * Math.sin(t / 300); ctx.fillStyle = '#C084FC'; ctx.fillRect(n.rx * T - 6, n.ry * T + T - 15, T + 12, 13); ctx.globalAlpha = 1;
+            if (!calm) for (var ko = 0; ko < 4; ko++) { var kan = t / 450 + ko * Math.PI / 2; ctx.fillStyle = ko % 2 ? '#E9D5FF' : '#FFFFFF'; ctx.fillRect(Math.round(n.rx * T + T / 2 + Math.cos(kan) * 22) - 1, Math.round(n.ry * T + T - 24 + Math.sin(kan) * 9) - 1, 3, 3); }
+          }
           drawSprite(n.sprite, n.rx + jx / T, n.ry, fl, (calm ? 0 : idle) + hop, fr);
           var top = n.ry * T + T - sprH(n.sprite) - 6 - (calm ? 0 : idle) - hop, cx = n.rx * T + T / 2;
           // partikel: kilau (baik) atau asap ungu-merah (jahat)
@@ -790,14 +929,25 @@
             return true;
           });
           ctx.globalAlpha = 1;
+          if (n.keeper) {
+            var ks = opts.keeper ? opts.keeper(n.id) : 1, kb = calm ? 0 : Math.round(Math.abs(Math.sin(t / 280)) * 4), ky = top - 44 - kb, kc = ks === 2 ? '#86efac' : '#C084FC';
+            tag(ks === 2 ? 'MATERI OK' : 'MATERI', cx, ky, kc);
+            ctx.fillStyle = kc; ctx.fillRect(cx - 4, ky + 14, 8, 3); ctx.fillRect(cx - 2, ky + 17, 4, 3);
+          }
           if (n.bub && now < n.bub.until) bubble(n.bub.text, cx, top);
           else if (opts.alert && opts.alert(n.id, n)) {
             var by = top - (calm ? 0 : Math.round(Math.abs(Math.sin(t / 260)) * 4));
             ctx.fillStyle = evil ? '#EF4444' : '#EAB308'; ctx.fillRect(cx - 7, by - 14, 14, 14); ctx.fillStyle = evil ? '#F9FAFB' : '#111827';
             ctx.font = '10px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', cx + 1, by - 6);
           }
-          if (d <= 3.2 && n.name) tag(n.name, cx, n.ry * T + T + 1, evil ? '#f87171' : '#86efac');
+          if (d <= 3.2 && n.name) tag(n.name, cx, n.ry * T + T + 1, evil ? '#f87171' : (n.keeper ? '#C084FC' : '#86efac'));
         } };
+      });
+      cur.A.portals.forEach(function (p) {   // gedung ikut diurutkan: pemain di utara tertutup gedung, di dalam gedung gedung memudar
+        list.push({ y: p.y - .15, draw: function () {
+          var inside = Math.abs(rx - p.x) <= 1.6 && ry >= p.y - 2.4 && ry <= p.y + .3;
+          drawBuilding(p, t, portalStatus(p, t), inside ? .4 : 1); drawPortal(p, t);
+        } });
       });
       list.push({ y: ry, draw: function () {
         var hop = hopT && now - hopT < 420 ? Math.sin((now - hopT) / 420 * Math.PI) * 12 : 0;
@@ -865,12 +1015,13 @@
         if (be < 3000) {
           var ba = Math.min(1, be / 300, (3000 - be) / 500);
           ctx.globalAlpha = Math.max(0, ba) * .92;
-          ctx.fillStyle = '#0b1220'; ctx.fillRect(0, 22, canvas.width - 150, 52);
-          ctx.fillStyle = cur.th.glow; ctx.fillRect(0, 22, 6, 52);
+          var bw = Math.min(canvas.width - 40, 520), bx0 = Math.round((canvas.width - bw) / 2), by0 = Math.round(canvas.height * .2), slide = (1 - Math.min(1, be / 300)) * -14;
+          ctx.fillStyle = '#0b1220'; ctx.fillRect(bx0, by0 + slide, bw, 64);
+          ctx.fillStyle = cur.th.glow; ctx.fillRect(bx0, by0 + slide, bw, 4); ctx.fillRect(bx0, by0 + slide + 60, bw, 4);
           ctx.globalAlpha = Math.max(0, ba);
-          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#F9FAFB'; ctx.font = '14px ' + FONT; ctx.fillText(cur.A.name, 20, 40);
-          ctx.fillStyle = '#9CA3AF'; ctx.font = '8px ' + FONT; ctx.fillText(cur.A.sub || '', 20, 62);
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#F9FAFB'; ctx.font = '16px ' + FONT; ctx.fillText(cur.A.name, canvas.width / 2, by0 + slide + 28);
+          ctx.fillStyle = '#9CA3AF'; ctx.font = '8px ' + FONT; ctx.fillText(cur.A.sub || '', canvas.width / 2, by0 + slide + 48);
           ctx.globalAlpha = 1;
         }
       }

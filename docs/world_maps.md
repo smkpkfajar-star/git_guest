@@ -74,6 +74,80 @@ untuk pasangan yang berada dalam 18 petak dari pemain. NPC yang punya `wander` b
 Pasangan baik–jahat dipakai untuk meluruskan mitos. Obrolan berhenti saat dialog terbuka atau pindah peta, dan tidak jalan pada mode
 **Kurangi animasi**. Menambah obrolan: tambahkan entri di `GQ_CHATS[<id peta>]` dengan id NPC yang ada di peta itu.
 
+## Penyimpan materi dan syarat belajar
+
+Tiap stage punya satu NPC **Penyimpan Materi** (`keeper` di `data/areas.js`; jobdesknya "Penyimpan Materi · ..."). Berbicara dengannya
+menampilkan tombol **Buka Materi (x/y)** yang membuka perpustakaan: daftar topik yang diambil dari `material` misi stage itu (judul, paragraf,
+gambar, contoh perintah). Setiap topik ditandai selesai dengan tombol **Sudah paham**.
+
+| Stage | Penyimpan Materi |
+|---|---|
+| Akademi | Prof. Versi |
+| Tiga Zona | Kak Stage |
+| Setup | Satpam Config |
+| Terminal | Pustakawan Log |
+| Commit | Master Commit |
+| Brankas | Penjaga Brankas |
+| Benteng | Master Merge |
+
+**Syarat:** selama belum semua topik dibaca, portal Level di stage itu berstatus *belajar* (ikon buku kuning), dialognya memuat pesan
+"Belajar dulu!" tanpa tombol Masuk, dan ada tombol **Tunjukkan <NPC>** yang menyalakan penanda arah. Penyimpan materi menampilkan tanda `!`
+sampai semua topik dibaca. Setelah lengkap, portal terbuka dan musuh stage bisa dilawan. Level yang sudah selesai tidak terkunci lagi.
+Kemajuan baca disimpan per profil (`learned` di save, ikut ekspor/impor). Mode Daftar tetap memakai alur lama: materi ditampilkan penuh
+sebelum tantangan.
+
+**Tampilan room master.** Penyimpan Materi dibuat mencolok: aura ungu di kaki, empat bintang mengorbit, label ungu **MATERI** yang naik-turun
+di atas kepala (hijau "MATERI OK" bila semua topik sudah dibaca), dan nama berwarna ungu. Di minimap ia berupa berlian ungu besar dengan cincin
+berdenyut (hijau bila materi sudah dibaca), berbeda dari titik hijau (guru) dan merah (penjahat). Ia juga **berkeliling bebas** (radius 7 petak
+dari titik asal, diatur di `data/areas.js`), jadi cari label MATERI atau titik ungu di minimap. Mode **Kurangi animasi** mematikan aura dan gerak.
+
+## Panduan dan petunjuk untuk siswa
+
+- **Panduan Bermain** (4 halaman: cara bergerak sesuai mode GUI/CLI, arti penanda, alur belajar, dan cara mencari bantuan). Terbuka otomatis saat
+  pertama kali profil masuk dunia (`guideSeen` di profil), dan bisa dibuka lagi lewat tombol **Panduan** di bilah atas atau di kartu Petunjuk.
+- **Catatan Misi** adalah kartu bergaya game (latar gelap, tepi kuning berdenyut, tulisan besar) di pojok kiri atas peta yang selalu tampil (pengingat misi + panduan cepat). Isinya daftar
+  langkah dengan tanda ✓ (selesai), ▶ (sedang dikerjakan), dan • (berikutnya): di Plaza menunjuk gerbang berikutnya; di stage berisi
+  *Temui Penyimpan Materi*, *Baca semua materi (x/y)*, *Masuk portal Level dan lawan musuh*, *Kembali ke Plaza*. Baris panduan cepat menyesuaikan
+  mode GUI/CLI. Tombol **Tunjukkan** menyalakan penanda arah di peta dan menulis jumlah langkah (mode CLI disertai perintah siap ketik),
+  tombol **Panduan** membuka panduan lengkap, dan tombol –/+ menciutkan catatan (pilihan diingat di browser).
+- Saat masuk stage yang materinya belum lengkap, muncul toast pengingat mencari Penyimpan Materi. Dialog Nara dan Bugbyte juga menjelaskan
+  alur ini dan menyebut tombol Panduan.
+
+**Spanduk nama zona.** Saat masuk sebuah peta, nama zona tampil selama 3 detik di **tengah** layar (bukan di pojok), supaya tidak tertutup minimap
+dan catatan misi. Catatan misi memudar sementara selama spanduk tampil.
+
+## Bangunan portal
+
+Setiap gerbang dan portal berupa **gedung 3×3 ubin** yang sesuai namanya, dengan pintu di ubin portal. Gedung **bisa dilewati** dari sisi mana pun, jadi portal tidak harus dimasuki lewat pintu. Pemain di utara gedung tertutup olehnya, dan saat pemain berada di dalam gedung, gedung memudar agar karakter tetap terlihat. Setelah keluar stage, pemain muncul di selatan gerbang. Digambar oleh `drawBuilding` di `js/world.js`:
+
+| Gerbang / portal | Bangunan | Animasi |
+|---|---|---|
+| AKADEMI (VCS) | gedung sekolah berkolom | bendera berkibar, jendela menyala berkedip |
+| Level 1 (di dalam Akademi) | ruang kelas: papan tulis, jam, lampu, meja | tulisan kapur bergulir, jarum jam berputar, lampu berkedip |
+| Level 2–7 (di dalam stage lain) | **portal matriks**: bingkai digital berisi hujan kode, bentuk dan warna beda per stage | lihat tabel di bawah |
+| 3 ZONA | tiga menara W / S / R | tiap zona menyala bergantian |
+| SETUP | bengkel | roda gigi berputar, percik |
+| TERMINAL | gedung layar terminal | teks hijau bergulir, kursor berkedip |
+| COMMIT | bengkel tempa | cerobong berasap, tungku berkobar |
+| BRANKAS | brankas baja | roda putar, lampu alarm, laser pemindai |
+| BENTENG | benteng gelap | panji berkibar, mata bos berdenyut, bara lava |
+| Pintu keluar | gapura batu | rune kuning berdenyut, kilau naik |
+
+Portal level di dalam stage: Akademi berupa ruang kelas, stage lain berupa portal matriks.
+
+| Stage | Portal matriks | Animasi khas |
+|---|---|---|
+| Tiga Zona | bingkai ungu, warna berganti kuning/biru/ungu | tiga orb mengorbit |
+| Setup | bingkai teal | roda gigi berputar |
+| Terminal | bingkai hijau | garis pindai turun-naik |
+| Commit | bingkai tungku dengan cerobong | bara api naik |
+| Brankas | bingkai garis bahaya, merah muda | laser silang menyapu |
+| Benteng | bingkai merah gelap | pusaran kotak berputar dan kilat |
+
+Semuanya berisi hujan kode berkepala terang. Gedung terkunci tampak redup, dan yang sudah selesai diberi lencana centang
+hijau. Mode **Kurangi animasi** membuat gedung diam. Saat dihitung, petak gedung dikecualikan dari dekorasi acak dan keterjangkauan tetap
+diperiksa otomatis.
+
 ## Penanda karakter pemain
 
 Karakter pemain diberi label kuning **KAMU** dengan panah melayang di atas kepala, cincin kuning berdenyut di kaki, dan titik berkedip

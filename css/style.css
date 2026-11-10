@@ -501,13 +501,15 @@ select:focus { border-color: var(--blue); }
   .player h1 { font-size: 1.05rem; }
 
   /* Dunia */
-  .world-layout { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) 270px; gap: 18px; align-items: stretch; }
+  .page-world { max-width: 2100px !important; }
+  .world-layout { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) 250px; gap: 14px; align-items: stretch; }
   .world-layout > section { display: flex; flex-direction: column; align-items: center; min-height: 0; }
   .world-canvas {
     width: auto; aspect-ratio: 24 / 13;
-    height: min(calc(100dvh - 186px), calc((100vw - 340px) * 13 / 24));
+    height: min(calc(100dvh - 170px), calc((100vw - 340px) * 13 / 24));
     max-width: 100%;
   }
+  .world-stage { width: auto; max-width: 100%; }
   .world-hint { width: 100%; margin-top: 8px; min-height: 0; padding: 6px 12px; }
   .world-layout .side { overflow-y: auto; min-height: 0; }
   .world-layout .side .card { margin-bottom: 12px; padding: 14px; }
@@ -1052,6 +1054,34 @@ select:focus { border-color: var(--blue); }
 
 .job { font-size: .78rem; color: var(--muted, #9CA3AF); margin: -2px 0 6px; }
 .modal .row { flex-wrap: wrap; }
+
+/* ---------- Panduan & petunjuk dunia ---------- */
+.legend { display: grid; gap: 8px; margin: 10px 0; }
+.legend-row { display: flex; gap: 10px; align-items: flex-start; font-size: .9rem; }
+.swatch { width: 16px; height: 16px; flex: none; border: 2px solid #0b1220; margin-top: 2px; }
+.guide-step { font-size: .78rem; color: var(--muted, #9CA3AF); margin: 0 0 4px; }
+.world-stage { position: relative; width: 100%; }
+.mission-note { position: absolute; top: 10px; left: 10px; z-index: 5; width: min(300px, 48%); max-height: calc(100% - 20px); overflow-y: auto; background: rgba(11, 18, 32, .93); color: var(--text); border: 3px solid var(--yellow); box-shadow: var(--px) var(--px) 0 #7c5a00, 0 0 16px rgba(234, 179, 8, .45); padding: 10px 12px 12px; font-family: var(--font-ui); font-size: clamp(.84rem, .95vw, 1rem); line-height: 1.45; animation: notepulse 2.4s ease-in-out infinite; }
+@keyframes notepulse { 0%, 100% { box-shadow: var(--px) var(--px) 0 #7c5a00, 0 0 10px rgba(234, 179, 8, .35); } 50% { box-shadow: var(--px) var(--px) 0 #7c5a00, 0 0 22px rgba(234, 179, 8, .75); } }
+body.reduce-motion .mission-note { animation: none; }
+.mission-note { transition: opacity .3s; }
+.mission-note.dim { opacity: .12; pointer-events: none; }
+.mission-note.min { width: auto; padding: 5px 10px; }
+.mission-note .note-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+.mission-note .note-head b { font-family: var(--font-pixel); font-weight: 400; font-size: .62rem; color: var(--yellow); letter-spacing: 1px; }
+.note-toggle { background: var(--surface-2); border: 2px solid var(--yellow); color: var(--yellow); min-width: 30px; min-height: 30px; font-weight: 700; font-size: 1rem; cursor: pointer; line-height: 1; }
+.note-toggle:hover { background: var(--yellow); color: var(--ink); }
+.mission-note .tip-text { display: none; }
+.note-list { list-style: none; margin: 8px 0; padding: 0; }
+.note-list li { padding: 4px 6px; color: #D1D5DB; }
+.note-list li.done { color: #86efac; text-decoration: line-through; }
+.note-list li.now { color: #fff; font-weight: 700; background: rgba(234, 179, 8, .22); border-left: 4px solid var(--yellow); padding-left: 8px; }
+.note-quick { margin: 6px 0 8px; font-size: .8em; color: var(--muted); border-top: 2px dashed var(--line); padding-top: 6px; }
+.mission-note .row { gap: 8px; flex-wrap: wrap; }
+.mission-note .btn { min-height: 34px; padding: 4px 12px; font-size: .82rem; }
+.mission-note .tip-note { margin: 8px 0 0; padding: 6px 8px; font-size: .85em; color: #fde68a; font-weight: 700; background: var(--surface); border-left: 4px solid var(--blue); }
+.mission-note .tip-note:empty { display: none; }
+@media (max-width: 960px) { .mission-note { width: min(300px, 70%); } }
 
 /* ---------- Mode kontrol CLI ---------- */
 .cli-log { height: clamp(96px, 20vh, 170px); overflow-y: auto; background: #050a14; border: 2px solid var(--line); padding: 6px 8px; font-family: var(--font-mono); font-size: .78rem; line-height: 1.5; }

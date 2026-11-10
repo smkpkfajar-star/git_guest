@@ -30,6 +30,18 @@
     return isObj(c) && typeof c.id === 'string' && /^[a-z_]{3,12}$/.test(c.id) &&
       ['hair', 'outfit', 'accent', 'skin', 'eyes'].every(function (k) { return typeof c[k] === 'string' && HEX.test(c[k]); });
   }
+  /** Materi yang sudah dibaca: { idMisi: [indeksTopik, ...] } (opsional pada save lama). */
+  function cleanLearned(l) {
+    var out = {};
+    if (!isObj(l)) return out;
+    Object.keys(l).forEach(function (k) {
+      if (!/^[a-z0-9_-]{1,40}$/i.test(k) || !Array.isArray(l[k])) return;
+      var seen = {}, a = [];
+      l[k].forEach(function (n) { if (typeof n === 'number' && n >= 0 && n < 50 && Math.floor(n) === n && !seen[n]) { seen[n] = 1; a.push(n); } });
+      out[k] = a;
+    });
+    return out;
+  }
   function validateProfile(p) {
     return isObj(p) && typeof p.displayName === 'string' && p.displayName.length > 0 && p.displayName.length <= 20 &&
       typeof p.xp === 'number' && isFinite(p.xp) && p.xp >= 0 &&
@@ -50,7 +62,7 @@
       out.profiles[ids[i]] = {
         displayName: p.displayName, xp: p.xp,
         completedMissions: p.completedMissions.slice(), xpChallenges: p.xpChallenges.slice(),
-        bestScores: Object.assign({}, p.bestScores), introSeen: p.introSeen === true,
+        bestScores: Object.assign({}, p.bestScores), introSeen: p.introSeen === true, guideSeen: p.guideSeen === true, learned: cleanLearned(p.learned),
         char: validChar(p.char) ? { id: p.char.id, hair: p.char.hair, outfit: p.char.outfit, accent: p.char.accent, skin: p.char.skin, eyes: p.char.eyes } : null
       };
     }
