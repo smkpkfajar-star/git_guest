@@ -14,6 +14,14 @@ window.GQ_MISSIONS = [
   {
     id: 'vcs', no: 1, ready: true, game: 'Battle Kuis',
     enemy: { name: 'Ghost Server', img: 'ghost-server', attack: 'Single Point Failure', intro: 'Ghost Server muncul! Server pusat tua ini menyimpan semua riwayat di satu tempat. Jawab dengan benar untuk menyerangnya!' },
+    /* narasi pembuka stage (gaya visual novel; tampil sekali per profil). who: narasi | nara | bugbyte | enemy | player. *kata* = sorotan. */
+    story: [
+      { who: 'narasi', text: 'Hari pertamamu di *CodeForge Studio*. Di ujung lorong, sebuah server pusat tua berderak pelan...' },
+      { who: 'nara', text: 'Sebelum mengetik perintah apa pun, kamu harus paham dulu *mengapa* tim kita butuh Version Control System.' },
+      { who: 'bugbyte', text: 'Bip! Terdeteksi: SATU server menyimpan SEMUA riwayat proyek. Kalau dia mati, semuanya ikut hilang!' },
+      { who: 'enemy', text: 'Hehehe... semua riwayat ada padaku. Tanpa aku, kalian bukan siapa-siapa!' },
+      { who: 'player', text: 'Git itu *terdistribusi*. Mari kita buktikan!' }
+    ],
     title: 'Developer Academy',
     summary: 'Pahami Version Control System, Centralized vs Distributed, dan alasan memakai Git.',
     goals: [
@@ -84,6 +92,13 @@ window.GQ_MISSIONS = [
   {
     id: 'three-zones', no: 2, ready: true, game: 'Sortir Konveyor',
     enemy: { name: 'Zone Wraith', img: 'zone-wraith', attack: 'Zona Tersesat', intro: 'Zone Wraith melayang keluar dari tiga zona! Kirim setiap kartu di konveyor ke zona yang tepat sebelum lolos!' },
+    /* narasi pembuka stage (gaya visual novel; tampil sekali per profil). who: narasi | nara | bugbyte | enemy | player. *kata* = sorotan. */
+    story: [
+      { who: 'narasi', text: 'Di balik pintu ganda, tiga ruangan berpendar: *Working Directory*, *Staging Area*, dan *Local Repository*.' },
+      { who: 'nara', text: 'Setiap perubahan harus melewati tiga zona itu secara berurutan. Salah kirim, riwayat jadi kacau.' },
+      { who: 'enemy', text: 'Kartu-kartu itu milikku! Kalian tak akan sempat mengirimnya ke zona yang benar...' },
+      { who: 'bugbyte', text: 'Tenang. Kirim tiap kartu ke zona yang tepat *sebelum lolos* dari konveyor!' }
+    ],
     title: 'The Three Zones',
     summary: 'Working Directory, Staging Area, Local Repository, serta status Untracked sampai Committed.',
     goals: [
@@ -151,6 +166,13 @@ window.GQ_MISSIONS = [
   {
     id: 'setup', no: 3, ready: true, game: 'Simulasi Terminal Berwaktu',
     enemy: { name: 'Config Imp', img: 'config-imp', attack: 'Salah Konfigurasi', intro: 'Config Imp mengacak pengaturan Git! Ketik perintah yang benar di terminal sebelum waktu habis.' },
+    /* narasi pembuka stage (gaya visual novel; tampil sekali per profil). who: narasi | nara | bugbyte | enemy | player. *kata* = sorotan. */
+    story: [
+      { who: 'narasi', text: 'Setup Station dipenuhi layar yang berkedip. Seseorang telah mengacak pengaturan Git...' },
+      { who: 'bugbyte', text: 'Peringatan! Nama dan email pengguna hilang. Tanpa identitas, commit-mu tidak punya penulis!' },
+      { who: 'nara', text: 'Atur *user.name* dan *user.email*, lalu jalankan *git init* untuk memulai repositori.' },
+      { who: 'enemy', text: 'Salah satu huruf saja, dan konfigurasimu kuacak lagi! Hihihi!' }
+    ],
     title: 'Setup Station',
     summary: 'Konfigurasi identitas dan inisialisasi repositori lewat terminal simulasi berwaktu.',
     goals: [
@@ -215,6 +237,13 @@ window.GQ_MISSIONS = [
   {
     id: 'commands', no: 4, ready: true, game: 'Fast Typing Race',
     enemy: { name: 'Status Slime', img: 'status-slime', attack: 'Output Lengket', intro: 'Status Slime melompat! Kalahkan dengan mengetik perintah Git secepat dan setepat mungkin.' },
+    /* narasi pembuka stage (gaya visual novel; tampil sekali per profil). who: narasi | nara | bugbyte | enemy | player. *kata* = sorotan. */
+    story: [
+      { who: 'narasi', text: 'Lorong terminal membentang panjang. Lendir hijau menetes dari layar-layar tua...' },
+      { who: 'nara', text: 'Developer yang baik selalu mengecek *git status* sebelum melangkah. Jangan menebak-nebak.' },
+      { who: 'enemy', text: 'Blub blub! Output-ku lengket. Perintahmu pasti salah ketik!' },
+      { who: 'bugbyte', text: 'Ketik cepat dan *tepat*. Salin perintahnya dulu, lalu coba ingat sendiri!' }
+    ],
     title: 'Command Terminal',
     summary: 'git status, add, diff, dan log lewat balapan mengetik.',
     goals: [
@@ -259,6 +288,13 @@ window.GQ_MISSIONS = [
   {
     id: 'commit', no: 5, ready: true, game: 'Simulator Repositori',
     enemy: { name: 'Commit Goblin', img: 'commit-goblin', attack: 'Pesan Commit Asal', intro: 'Commit Goblin mengacaukan riwayat dengan pesan commit asal-asalan! Rapikan repositori dengan commit yang benar.' },
+    /* narasi pembuka stage (gaya visual novel; tampil sekali per profil). who: narasi | nara | bugbyte | enemy | player. *kata* = sorotan. */
+    story: [
+      { who: 'narasi', text: 'Papan tugas penuh pesan commit asal-asalan: *fix*, *update*, *asdf*...' },
+      { who: 'nara', text: 'Pesan commit adalah *surat untuk dirimu di masa depan*. Pakai prefix yang jelas: feat, fix, docs, dan kawan-kawan.' },
+      { who: 'enemy', text: 'Kekeke! Riwayat berantakan itu seni! Tulis "update lagi" saja sudah cukup!' },
+      { who: 'bugbyte', text: 'Rapikan repositori: *add* yang benar, lalu commit dengan pesan yang jelas!' }
+    ],
     title: 'Commit Master',
     summary: 'Praktik stage dan commit dengan Conventional Commits di repositori simulasi.',
     goals: [
@@ -306,6 +342,13 @@ window.GQ_MISSIONS = [
   {
     id: 'gitignore', no: 6, ready: true, game: 'Security Sweep + Kartu Memori',
     enemy: { name: 'Vault Guardian', img: 'vault-guardian', attack: 'Kebocoran Rahasia', intro: 'Vault Guardian menjaga brankas yang bocor! Temukan berkas yang tidak boleh masuk repositori, lalu hafalkan pola .gitignore.' },
+    /* narasi pembuka stage (gaya visual novel; tampil sekali per profil). who: narasi | nara | bugbyte | enemy | player. *kata* = sorotan. */
+    story: [
+      { who: 'narasi', text: 'Brankas Keamanan berdengung. Berkas rahasia berserakan, siap bocor ke repositori publik.' },
+      { who: 'nara', text: 'Password, token, dan berkas besar *tidak boleh* ikut ter-commit. Itulah gunanya *.gitignore*.' },
+      { who: 'enemy', text: 'Satu berkas rahasia lolos, dan seisi brankas terbuka. Sanggup menutupnya rapat?' },
+      { who: 'bugbyte', text: 'Temukan berkas yang harus diabaikan, lalu hafalkan polanya!' }
+    ],
     title: 'Security Vault',
     summary: 'Pindai berkas rahasia dan pelajari pola .gitignore lewat kartu memori.',
     goals: [
@@ -359,6 +402,14 @@ window.GQ_MISSIONS = [
   {
     id: 'final', no: 7, ready: true, final: true, game: 'Boss Rush',
     enemy: { name: 'Glitch Prime', img: 'glitch-prime', attack: 'Kekacauan Total', intro: 'Glitch Prime, pemimpin semua gangguan, muncul! Hadapi tiga ronde: alur kerja Git, pemindaian brankas, dan sortir status!' },
+    /* narasi pembuka stage (gaya visual novel; tampil sekali per profil). who: narasi | nara | bugbyte | enemy | player. *kata* = sorotan. */
+    story: [
+      { who: 'narasi', text: 'Langit kantor retak. Semua gangguan berkumpul menjadi satu sosok raksasa.' },
+      { who: 'enemy', text: 'Akulah kekacauan terakhir. Tak ada satu commit pun yang selamat!' },
+      { who: 'nara', text: 'Ini ujian terakhir. Semua yang kamu pelajari dari Level 1 sampai 6 dipakai di sini.' },
+      { who: 'bugbyte', text: 'Aku di sisimu! Alur kerja, brankas, sortir. Tiga ronde, ayo!' },
+      { who: 'player', text: 'Aku siap. Waktunya jadi *Repository Guardian*!' }
+    ],
     title: 'Final Boss: Repository Guardian',
     summary: 'Boss rush: ketik alur kerja Git, pindai brankas, dan sortir status berkas.',
     goals: [

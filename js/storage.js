@@ -63,6 +63,7 @@
         displayName: p.displayName, xp: p.xp,
         completedMissions: p.completedMissions.slice(), xpChallenges: p.xpChallenges.slice(),
         bestScores: Object.assign({}, p.bestScores), introSeen: p.introSeen === true, guideSeen: p.guideSeen === true, learned: cleanLearned(p.learned),
+        storySeen: Array.isArray(p.storySeen) ? p.storySeen.filter(function (k) { return typeof k === 'string' && /^[a-z0-9_-]{1,40}$/i.test(k); }).slice(0, 20) : [],
         char: validChar(p.char) ? { id: p.char.id, hair: p.char.hair, outfit: p.char.outfit, accent: p.char.accent, skin: p.char.skin, eyes: p.char.eyes } : null
       };
     }

@@ -289,9 +289,8 @@
       h('div', { class: 'row', style: 'margin-top:12px' }, btn('Tutup', 'btn-primary', function () { close(); }))
     ]);
   }
-  /* Aktor splash: karakter pemain yang jatuh konyol (klik / acak), lari kembali bila hampir keluar layar,
-     lalu ikut animasi mulai. Fisika sederhana lewat requestAnimationFrame; mode "Animasi: Kurang" = diam. */
-  var TRIP_SAYS = ['WAAAA!', 'Aduh!', 'Kepeleset!', 'Kulit pisang?!', 'Eh eh eh!', 'Merge conflict!!', 'git revert!'];
+  /* Aktor splash: karakter pemain yang kesandung (klik / acak), lari kembali bila hampir keluar layar. Fisika sederhana lewat requestAnimationFrame; mode "Animasi: Kurang" = diam. */
+  var TRIP_SAYS = ['Waduh!', 'Aduh!', 'Kesandung!', 'Eh eh eh!', 'Hup!'];
   var GETUP_SAYS = ['Hehe, gapapa!', 'Aku baik-baik saja...', 'Jangan bilang siapa-siapa!', 'Sudah di-commit kok!'];
   function splashActor(host) {
     var G = window.GQChars, SC = 5, W = G.GW * SC, H = G.GH * SC;
@@ -303,7 +302,8 @@
     var root = h('button', { type: 'button', class: 'mc-actor', tabindex: '-1', 'aria-label': 'Karakter kamu. Klik untuk menjahilinya.', style: 'width:' + W + 'px;height:' + H + 'px' }, bubble, body);
     host.appendChild(root);
 
-    var st = 'wait', tm = 0.9, x = 0, y = 0, vx = 0, vy = 0, rot = 0, rs = 0, sc = 1, sq = 1, bounces = 0, tgt = 0, ph = 0, since = 0, step_t = 0, onJump = null;
+    var upSaid = false, rotT = 0;
+    var st = 'wait', tm = 0.9, x = 0, y = 0, vx = 0, vy = 0, rot = 0, rs = 0, sc = 1, sq = 1, bounces = 0, tgt = 0, ph = 0, since = 0, step_t = 0;
     var raf = 0, last = performance.now(), sayT = 0, dead = false;
     function hw() { return host.clientWidth || 800; }
     function hh() { return host.clientHeight || 600; }
@@ -318,9 +318,10 @@
       if (st !== 'idle' && st !== 'walk') return;
       sfx('jump'); say(pick(TRIP_SAYS), 1500);
       var dir = Math.random() < 0.6 ? 1 : -1;
-      vx = dir * (480 + Math.random() * 220); vy = 720; rs = dir * (540 + Math.random() * 360); bounces = 0; since = 0;
-      st = 'tumble'; face('talk', dir);
+      stumble(dir); since = 0; st = 'tumble';
     }
+    /* kesandung: hop kecil ke depan, badan condong lalu rebah (tanpa salto) */
+    function stumble(dir) { vx = dir * (150 + Math.random() * 60); vy = 230; rs = 0; rotT = dir * 82; bounces = 0; face('talk', dir); }
     function toIdle() { st = 'idle'; tm = 2 + Math.random() * 3; face('idle'); }
     root.addEventListener('click', function () {
       if (calm()) { say(pick(GETUP_SAYS)); return; }
@@ -337,13 +338,13 @@
       if (st === 'wait') {
         if (tm <= 0) { x = homeX(); y = hh() + 40; vy = 0; vx = 0; st = 'drop'; root.style.visibility = 'visible'; face('talk'); }
       } else if (st === 'drop' || st === 'tumble') {
-        vy -= 1800 * dt; y += vy * dt; x += vx * dt; rot += rs * dt;
-        if (st === 'drop') rot = 0;
+        vy -= 1800 * dt; y += vy * dt; x += vx * dt;
+        rot = st === 'drop' ? 0 : rot + (rotT - rot) * Math.min(1, dt * 9);
         if (y <= 0) {
           y = 0;
           if (Math.abs(vy) > 260 && bounces < 2) { vy = -vy * 0.45; vx *= 0.7; rs *= 0.6; bounces++; sq = 0.7; sfx('click'); }
           else if (st === 'drop') { vy = 0; sq = 0.65; say('Aduh! Mendarat...', 1500); toIdle(); }
-          else { vy = 0; vx *= (1 - Math.min(1, 4 * dt)); rs = 0; if (Math.abs(vx) < 30) { rot = 0; st = 'getup'; tm = 0.9; sq = 0.7; say(pick(GETUP_SAYS), 1600); face('idle'); } }
+          else { vy = 0; vx *= (1 - Math.min(1, 6 * dt)); rot += (rotT - rot) * Math.min(1, dt * 12); if (Math.abs(vx) < 25) { vx = 0; st = 'getup'; tm = 1.1; upSaid = false; face('talk'); } }
         }
         // hampir hilang dari layar → langsung balik arah dan lari ke posisi semula
         if (st === 'tumble' && (x < -W * 0.35 || x > w - W * 0.65)) {
@@ -352,12 +353,12 @@
           say('Eits! Hampir hilang!', 1300);
         }
       } else if (st === 'getup') {
-        rot += (0 - rot) * Math.min(1, dt * 12);
-        if (tm <= 0) toIdle();
+        if (tm < 0.4) { if (!upSaid) { upSaid = true; say(pick(GETUP_SAYS), 1500); } rot += (0 - rot) * Math.min(1, dt * 14); face('idle'); }
+        if (tm <= 0) { rot = 0; toIdle(); }
       } else if (st === 'run') {
         var hx = homeX(), d = hx - x, sp = 560 * dt;
         face(Math.floor(step_t / 0.08) % 2 ? 'walk1' : 'walk2', d >= 0 ? 1 : -1);
-        if (Math.abs(d) <= sp) { x = hx; sq = 0.8; say('Fiuh! Hampir saja!', 1700); st = 'getup'; tm = 0.5; face('idle', 1); }
+        if (Math.abs(d) <= sp) { x = hx; sq = 0.8; say('Fiuh! Hampir saja!', 1700); st = 'getup'; tm = 0.5; upSaid = true; face('idle', 1); }
         else x += Math.sign(d) * sp;
       } else if (st === 'idle') {
         x += (homeX() - x) * Math.min(1, dt * 2) * (Math.abs(homeX() - x) > 160 ? 1 : 0);   // ikut resize layar
@@ -370,20 +371,6 @@
         if (Math.abs(dd) <= s2) { x = tgt; toIdle(); }
         else x += Math.sign(dd) * s2;
         if (Math.random() < 0.22 * dt || since > 14) trip();    // kepeleset sesekali
-      } else if (st === 'launch') {
-        if (ph === 0) {            // lari ke tengah layar
-          var cx = w / 2 - W / 2, d2 = cx - x, s3 = 900 * dt;
-          face(Math.floor(step_t / 0.07) % 2 ? 'walk1' : 'walk2', d2 >= 0 ? 1 : -1);
-          if (Math.abs(d2) <= s3) { x = cx; ph = 1; vy = 950; rs = 540; tm = 0; face('talk', 1); if (onJump) onJump(); }
-          else x += Math.sign(d2) * s3;
-        } else if (ph === 1) {     // melompat tinggi sambil berputar
-          vy -= 1800 * dt; y += vy * dt; rot += rs * dt;
-          if (vy < 0) { ph = 2; tm = 0.75; }
-        } else {                   // tersedot pusaran
-          var k = Math.max(0, tm / 0.75);
-          sc = k; rot += 1200 * dt; y += (hh() * 0.42 - y) * Math.min(1, dt * 5);
-          if (tm <= 0) root.style.visibility = 'hidden';
-        }
       }
       paint();
     }
@@ -391,7 +378,6 @@
     if (calm()) { y = 0; root.style.visibility = 'visible'; paint(); }
     raf = requestAnimationFrame(frame);
     return {
-      launch: function (jumpCb) { clearTimeout(sayT); bubble.hidden = true; st = 'launch'; ph = 0; onJump = jumpCb; y = 0; vx = 0; vy = 0; rot = 0; rs = 0; sc = 1; sq = 1; root.style.visibility = 'visible'; },
       destroy: function () { dead = true; cancelAnimationFrame(raf); clearTimeout(sayT); cv.destroy(); }
     };
   }
@@ -425,32 +411,7 @@
     }
     sndBtn = mcBtn('', function () { save.settings.sound = !save.settings.sound; persist(); upd(); syncMusic(); });
     motBtn = mcBtn('', function () { save.settings.reduceMotion = !save.settings.reduceMotion; persist(); upd(); });
-    var launching = false, actor = null, launchTimers = [];
-    /* Animasi mulai: menu menyingkir, karakter berlari ke tengah, melompat, lalu tersedot pusaran portal. */
-    function launch(next) {
-      if (launching) return;
-      if (save.settings.reduceMotion || !actor) { next(); return; }
-      launching = true; sfx('portal');
-      scene.classList.add('mc-launching');
-      var finished = false;
-      function finish() { if (finished) return; finished = true; launchTimers.forEach(clearTimeout); next(); }
-      function later(fn, ms) { launchTimers.push(setTimeout(fn, ms)); }
-      actor.launch(function () {
-        sfx('jump');
-        var ov = h('div', { class: 'mc-launch', 'aria-hidden': 'true' },
-          h('div', { class: 'cine-vortex' }),
-          h('div', { class: 'cine-flash' }),
-          h('p', { class: 'mc-launch-term' },
-            h('span', { style: 'animation-delay:.05s', text: '$ git init' }),
-            h('span', { style: 'animation-delay:.4s', text: 'Initialized empty Git repository' }),
-            h('span', { style: 'animation-delay:.8s', class: 'ok', text: 'Petualangan dimulai!' })));
-        scene.appendChild(ov);
-        later(function () { sfx('levelup'); }, 700);
-        later(finish, 1500);
-      });
-      setTimeout(function () { scene.addEventListener('click', finish); }, 0);
-      cleanups.push(function () { launchTimers.forEach(clearTimeout); });
-    }
+    var actor = null;
     var scene = h('div', { class: 'scene mc-splash' }, pano, h('div', { class: 'mc-vignette' }),
       h('div', { class: 'mc-center' },
         h('div', { class: 'mc-logo' },
@@ -459,13 +420,14 @@
         h('p', { class: 'mc-sub', text: 'The Repository Chronicles' }),
         h('nav', { class: 'mc-menu', 'aria-label': 'Menu utama' },
           me ? mcBtn('Lanjutkan: ' + me.displayName + ' · Level ' + Score.levelInfo(me.xp).level + ' · ' + me.xp + ' XP', function () {
-            launch(function () { go(me.introSeen ? home() : 'intro'); });
+            go(me.introSeen ? home() : 'intro');
           }, { id: 'start-btn', class: 'mc-btn mc-main mc-continue' }) : null,
-          mcBtn(me ? 'Ganti / Buat Profil' : 'Mulai Petualangan', function () { if (me) go('profile'); else launch(function () { go('profile'); }); }, me ? {} : { id: 'start-btn', class: 'mc-btn mc-main' }),
+          mcBtn(me ? 'Ganti / Buat Profil' : 'Mulai Petualangan', function () { go('profile'); }, me ? {} : { id: 'start-btn', class: 'mc-btn mc-main' }),
           h('div', { class: 'mc-row' }, mcBtn('Cara Main', openHowTo), mcBtn('Pengaturan', openSettings)),
           h('div', { class: 'mc-row' }, sndBtn, motBtn)),
         tipEl,
-        h('p', { class: 'mc-hint', text: save.settings.sound ? 'Klik di mana saja untuk memulai musik.' : '' })),
+        h('p', { class: 'mc-hint', text: save.settings.sound ? 'Klik di mana saja untuk memulai musik.' : '' }),
+        h('p', { class: 'mc-device', role: 'note', text: 'Info: game ini lebih nyaman dijalankan di komputer atau PID (Panel Interaktif Digital) sekolah. Sebaiknya jangan di HP karena tampilan responsifnya masih kurang.' })),
       bug,
       h('div', { class: 'mc-foot' }, h('span', { text: 'GIT QUEST ' }), h('span', { text: 'Untuk siswa SMK RPL' })));
     mount(scene);
@@ -1587,9 +1549,82 @@
     cleanups.push(fx.destroy);
   }
 
+  /** Narasi pembuka stage ala visual novel (kotak dialog miring, potret besar, kata sorotan). Tampil sekali per profil. */
+  function storyIntro(i, next) {
+    var m = MISSIONS[i], p = profile();
+    if (window.GQ_FAST || !p || !m.story || !m.story.length) { next(); return; }
+    p.storySeen = p.storySeen || [];
+    if (p.storySeen.indexOf(m.id) >= 0) { next(); return; }
+    p.storySeen.push(m.id); persist();
+    var GW = window.GQWorld, reduce = !!save.settings.reduceMotion, root = document.getElementById('cine-root'), boss = !!m.final;
+    var lines = m.story, idx = 0, segs = [], total = 0, shown = 0, typer = 0, done = false, cvs = [];
+    var ptHold = h('div', { class: 'st-pt-hold' });
+    var nameEl = h('span', { class: 'st-name' });
+    var textEl = h('p', { class: 'st-text', 'aria-live': 'polite' });
+    var cnt = h('span', { class: 'st-count' });
+    var skip = h('button', { type: 'button', class: 'btn btn-secondary st-skip', text: 'Lewati ▸' });
+    var ov = h('div', { class: 'story t-' + m.id + (boss ? ' boss' : ''), role: 'dialog', 'aria-label': 'Narasi ' + m.title },
+      h('div', { class: 'st-bg' }), h('div', { class: 'st-slash s1' }), h('div', { class: 'st-slash s2' }),
+      h('div', { class: 'st-head' }, h('span', { class: 'st-lv', text: (boss ? 'FINAL BOSS' : 'LEVEL ' + m.no) + ' · ' + m.title }), cnt, skip),
+      ptHold,
+      h('div', { class: 'st-box' }, nameEl, textEl, h('span', { class: 'st-next', 'aria-hidden': 'true', text: '▼' })));
+
+    function parse(t) {   // *kata* = sorotan
+      var out = [], re = /\*([^*]+)\*/g, last = 0, mm;
+      while ((mm = re.exec(t))) { if (mm.index > last) out.push({ t: t.slice(last, mm.index) }); out.push({ t: mm[1], em: true }); last = re.lastIndex; }
+      if (last < t.length) out.push({ t: t.slice(last) });
+      return out;
+    }
+    function render(k) {
+      textEl.textContent = '';
+      segs.forEach(function (sg) {
+        if (k <= 0) return;
+        var part = sg.t.slice(0, k); k -= sg.t.length;
+        if (sg.em) textEl.appendChild(h('span', { class: 'st-em', text: part })); else textEl.appendChild(document.createTextNode(part));
+      });
+    }
+    function portrait(who) {
+      var sc = window.innerHeight < 720 ? 6 : 9, el = null;
+      if (who === 'enemy') el = h('img', { class: 'st-pt st-enemy', src: 'assets/images/characters/enemy-' + m.enemy.img + '.svg', alt: '' });
+      else if (who === 'nara' || who === 'bugbyte' || who === 'player') { var cv = GW.charCanvas(who, who === 'bugbyte' ? sc + 2 : sc); cvs.push(cv); el = h('div', { class: 'st-pt' }, cv.el); }
+      ptHold.textContent = '';
+      if (el) ptHold.appendChild(el);
+    }
+    function show(k) {
+      var L = lines[k], who = L.who;
+      ov.setAttribute('data-who', who);
+      nameEl.textContent = who === 'nara' ? 'Nara' : who === 'bugbyte' ? 'Bugbyte' : who === 'enemy' ? m.enemy.name : who === 'player' ? p.displayName : '';
+      cnt.textContent = (k + 1) + ' / ' + lines.length;
+      portrait(who);
+      segs = parse(L.text); total = segs.reduce(function (a, b) { return a + b.t.length; }, 0);
+      clearInterval(typer); sfx(who === 'enemy' ? 'hint' : 'talk');
+      if (reduce) { shown = total; render(total); return; }
+      shown = 0; render(0);
+      typer = setInterval(function () { shown += 1; render(shown); if (shown >= total) clearInterval(typer); }, 22);
+    }
+    function advance() {
+      if (done) return;
+      if (shown < total) { clearInterval(typer); shown = total; render(total); return; }
+      if (idx + 1 < lines.length) { sfx('click'); show(++idx); } else finish();
+    }
+    function finish() {
+      if (done) return; done = true; clearInterval(typer); document.removeEventListener('keydown', onK, true);
+      cvs.forEach(function (c) { if (c.destroy) c.destroy(); });
+      ov.classList.add('out'); setTimeout(function () { root.textContent = ''; next(); }, 260);
+    }
+    function onK(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); finish(); }
+      else if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') { e.preventDefault(); e.stopImmediatePropagation(); advance(); }
+    }
+    skip.addEventListener('click', function (e) { e.stopPropagation(); finish(); });
+    ov.addEventListener('click', advance); document.addEventListener('keydown', onK, true);
+    root.textContent = ''; root.appendChild(ov); show(0);
+  }
+
   /** Sinematik dramatis saat memasuki stage: pusaran portal, kilat, judul, dan adegan VS. */
   function cinematic(i, after) {
     if (window.GQ_FAST) { after(); return; }
+    var finalAfter = after; after = function () { storyIntro(i, finalAfter); };
     var m = MISSIONS[i], boss = !!m.final, reduce = !!save.settings.reduceMotion;
     var root = document.getElementById('cine-root');
     var pc = window.GQWorld.charCanvas('player', 5); pc.draw('walk1', 1);
