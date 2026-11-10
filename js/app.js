@@ -12,6 +12,7 @@
   var run = null; // sesi tantangan aktif
   var world = null; // instans dunia (overworld) yang sedang tampil
   var lastPortal = -1;
+  var resume = null;          // posisi pemain yang dipulihkan saat dunia dirender ulang (mis. ganti mode kontrol)
   var lastArea = 'plaza';     // peta terakhir yang dikunjungi (dipakai saat kembali ke dunia)
   var pendingUnlock = -1;      // portal yang baru terbuka (dianimasikan saat kembali ke dunia)
   var disposePart = null;      // pembersih timer/listener mini-game aktif
@@ -180,6 +181,14 @@
     relax.checked = !!save.settings.relaxTimer;
     relax.addEventListener('change', function () { save.settings.relaxTimer = relax.checked; persist(); });
 
+    var ctl = h('select', { id: 'set-control' }, h('option', { value: 'gui', text: 'GUI: panah, klik, tombol' }), h('option', { value: 'cli', text: 'CLI: ketik perintah (menantang)' }));
+    ctl.value = save.settings.controlMode === 'cli' ? 'cli' : 'gui';
+    ctl.addEventListener('change', function () {
+      save.settings.controlMode = ctl.value === 'cli' ? 'cli' : 'gui'; persist();
+      toast(save.settings.controlMode === 'cli' ? 'Mode CLI aktif: ketik perintah untuk bergerak.' : 'Mode GUI aktif.');
+      if (world && document.querySelector('.world-canvas')) { resume = { area: world.area(), pos: world.pos() }; go('world'); }
+    });
+
     var file = h('input', { type: 'file', accept: 'application/json,.json', id: 'set-import', style: 'display:none' });
     file.addEventListener('change', function () {
       var f = file.files && file.files[0];
@@ -201,6 +210,8 @@
     var body = [
       h('div', { class: 'setting-row' }, h('label', { for: 'set-sound', text: 'Efek suara' }), snd),
       h('div', { class: 'setting-row' }, h('label', { for: 'set-motion', text: 'Kurangi animasi' }), mot),
+      h('div', { class: 'setting-row' }, h('label', { for: 'set-control', text: 'Mode kontrol dunia' }), ctl),
+      h('p', { class: 'note', text: 'CLI: bergerak dengan mengetik, misalnya right 3; up(2); interact(). Lebih menantang. Berlaku di peta dunia.' }),
       h('div', { class: 'setting-row' }, h('label', { for: 'set-relax', text: 'Mode santai (waktu mini-game 2×)' }), relax),
       h('p', { class: 'note', text: 'Progres tersimpan di browser ini saja. Ekspor ke file JSON sebelum membersihkan data browser atau pindah komputer.' }),
       h('div', { class: 'row', style: 'margin-top:12px' },
@@ -578,20 +589,53 @@
   Object.keys(AREAS).forEach(function (aid) {
     AREAS[aid].npcs.forEach(function (n) {
       if (!NPC_INFO[n.id]) { var ls = n.lines; NPC_INFO[n.id] = { name: n.name, cls: n.kind === 'evil' ? 'glitch' : 'nara', lines: function () { return ls; } }; }
-      NPC_INFO[n.id].kind = n.kind;
+      NPC_INFO[n.id].kind = n.kind; NPC_INFO[n.id].job = n.job || '';
     });
   });
+  function portalLabel(pt) { return pt.kind === 'exit' ? 'Pintu keluar ke ' + AREAS[pt.to].name : (pt.kind === 'gate' ? 'Gerbang ' + AREAS[pt.to].name : 'Portal ' + MISSIONS[pt.mission].title); }
+  /** Kalimat arah dari posisi pemain ke tujuan (kanan/kiri/atas/bawah, sama dengan perintah mode CLI). */
+  function directionText(me, d) {
+    var dx = d.x - me.x, dy = d.y - me.y, parts = [], cmd = [];
+    if (dx) { parts.push(Math.abs(dx) + ' ke ' + (dx > 0 ? 'kanan' : 'kiri')); cmd.push((dx > 0 ? 'right ' : 'left ') + Math.abs(dx)); }
+    if (dy) { parts.push(Math.abs(dy) + ' ke ' + (dy > 0 ? 'bawah' : 'atas')); cmd.push((dy > 0 ? 'down ' : 'up ') + Math.abs(dy)); }
+    if (!parts.length) return { text: 'Kamu sudah berdiri di sana!', cmd: '' };
+    var tot = Math.abs(dx) + Math.abs(dy);
+    return { text: tot <= 2 ? 'Sangat dekat, hanya ' + parts.join(' dan ') + ' langkah.' : 'Sekitar ' + tot + ' langkah: ' + parts.join(', lalu ') + '. Kalau terhalang, putar lewat jalan setapak.', cmd: cmd.join('; ') };
+  }
   function talk(id) {
     var info = NPC_INFO[id]; if (!info) return;
     talked[id] = 1;
-    var lines = info.lines(), i = 0, close, evil = info.kind === 'evil';
+    var lines = info.lines(), i = 0, close, evil = info.kind === 'evil', canAsk = !evil && world && world.dests;
+    var speaker = h('div', { class: 'speaker ' + (evil ? 'evil' : 'good'), text: info.name + (evil ? ' (jahat)' : ' (baik)') });
+    var job = info.job ? h('div', { class: 'job', text: 'Jobdesk: ' + info.job }) : null;
     var text = h('div', { class: 'speech' + (evil ? ' evil' : ''), text: lines[0] });
+    var acts = h('div', { class: 'row' });
     var next = btn(lines.length > 1 ? 'Lanjut' : 'Tutup', 'btn-primary', function () {
       if (i < lines.length - 1) { i++; text.textContent = lines[i]; if (i === lines.length - 1) next.textContent = 'Tutup'; sfx('click'); }
       else close();
     });
+    function menu() {   // daftar tujuan untuk "Tanya arah"
+      var me = world.pos(), ds = world.dests().filter(function (d) { return d.type === 'portal' || (d.id !== id && d.kind !== 'evil'); });
+      ds.forEach(function (d) { d.dist = Math.abs(d.x - me.x) + Math.abs(d.y - me.y); d.label = d.type === 'portal' ? portalLabel(d.portal) : 'Bertemu ' + d.name; });
+      var ports = ds.filter(function (d) { return d.type === 'portal'; }), people = ds.filter(function (d) { return d.type === 'npc'; }).sort(function (a, b) { return a.dist - b.dist; }).slice(0, 6);
+      text.textContent = 'Mau ke mana? Pilih tujuanmu dan aku tunjukkan arahnya.';
+      acts.textContent = '';
+      ports.concat(people).forEach(function (d) { acts.appendChild(btn(d.label, 'btn-secondary', function () { answer(d); })); });
+      acts.appendChild(btn('Kembali', 'btn-secondary', function () { text.textContent = lines[i]; setActs(); }));
+    }
+    function answer(d) {
+      var me = world.pos(), dir = directionText(me, d);
+      text.textContent = info.name + ': ' + d.label + ' — ' + dir.text + (save.settings.controlMode === 'cli' && dir.cmd ? ' Ketik: ' + dir.cmd + '.' : '') + ' Tandanya kunyalakan di peta!';
+      world.guide(d.x, d.y, d.label); sfx('hint');
+      acts.textContent = '';
+      if (save.settings.controlMode !== 'cli') acts.appendChild(btn('Antar aku', 'btn-primary', function () { close(); world.goTo(d.x, d.y); }));
+      acts.appendChild(btn('Tujuan lain', 'btn-secondary', menu));
+      acts.appendChild(btn('Tutup', 'btn-secondary', function () { close(); }));
+    }
+    function setActs() { acts.textContent = ''; acts.appendChild(next); if (canAsk) acts.appendChild(btn('Tanya arah', 'btn-secondary', menu)); }
+    setActs();
     sfx(evil ? 'wrong' : 'hint');
-    close = openModal(info.name, [h('div', { class: 'speaker ' + (evil ? 'evil' : 'good'), text: info.name + (evil ? ' (jahat)' : ' (baik)') }), text, h('div', { class: 'row' }, next)]);
+    close = openModal(info.name, [speaker, job, text, acts].filter(Boolean));
   }
 
   function areaOfMission(i) { var id = MISSIONS[i].id; return AREAS[id] ? id : null; }
@@ -613,6 +657,106 @@
     acts.push(btn('Batal', 'btn-secondary', function () { close(); }));
     body.push(h('div', { class: 'row', style: 'margin-top:12px' }, acts));
     close = openModal((m.final ? 'Final Boss' : 'Level ' + m.no) + ': ' + m.title, body);
+  }
+
+  /* ---------- Mode kontrol CLI (menantang): gerak lewat perintah ketikan ---------- */
+  var CLI_DIR = { up: 'up', top: 'up', atas: 'up', north: 'up', down: 'down', bottom: 'down', bawah: 'down', south: 'down', left: 'left', kiri: 'left', west: 'left', right: 'right', kanan: 'right', east: 'right' };
+  var CLI_VEC = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  var CLI_HELP = [
+    'Perintah gerak: up | down | left | right  (alias: top, bottom, atas, bawah, kiri, kanan)',
+    'Contoh: right 3   right(3)   move("left", 2)',
+    'Aksi: interact()  talk()  wave()  look()  where()',
+    'Rangkai dengan titik koma: right(4); up(2); interact()',
+    'Lainnya: help  clear. Panah atas/bawah = riwayat perintah.'
+  ];
+  /** Urai satu pernyataan tanpa eval; hasil {t,...} atau {err}. */
+  function parseCliStmt(src) {
+    var m = /^([a-z_]+)\s*(?:\(([^)]*)\)|\s+(.+))?$/i.exec(src.trim());
+    if (!m) return { err: 'Tidak dimengerti: ' + src.trim() };
+    var name = m[1].toLowerCase(), argStr = (m[2] !== undefined ? m[2] : (m[3] || '')).trim();
+    var args = argStr ? argStr.split(/[\s,]+/).map(function (a) { return a.replace(/^["']+|["']+$/g, ''); }).filter(Boolean) : [];
+    function count(a) { var n = a === undefined ? 1 : Number(a); return (isInteger(n) && n >= 1 && n <= 40) ? n : 0; }
+    function isInteger(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
+    if (CLI_DIR[name]) { var n1 = count(args[0]); return n1 ? { t: 'move', dir: CLI_DIR[name], n: n1 } : { err: 'Jumlah langkah harus bilangan bulat 1–40.' }; }
+    if (name === 'move' || name === 'go' || name === 'walk' || name === 'jalan') {
+      var d = CLI_DIR[(args[0] || '').toLowerCase()]; if (!d) return { err: 'Arah tidak dikenal. Pakai: up, down, left, right.' };
+      var n2 = count(args[1]); return n2 ? { t: 'move', dir: d, n: n2 } : { err: 'Jumlah langkah harus bilangan bulat 1–40.' };
+    }
+    if (/^(interact|talk|bicara|use|enter|masuk)$/.test(name)) return { t: 'act' };
+    if (/^(wave|emote|lambai)$/.test(name)) return { t: 'wave' };
+    if (/^(where|pos|lokasi)$/.test(name)) return { t: 'where' };
+    if (/^(look|scan|lihat)$/.test(name)) return { t: 'look' };
+    if (/^(help|bantuan)$/.test(name)) return { t: 'help' };
+    if (/^(clear|cls)$/.test(name)) return { t: 'clear' };
+    return { err: 'Perintah tidak dikenal: ' + name + '. Ketik help.' };
+  }
+  function makeCli() {
+    var log = h('div', { class: 'cli-log', role: 'log', 'aria-live': 'polite' });
+    var input = h('input', { type: 'text', class: 'cli-input', id: 'cli-input', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Perintah gerak', placeholder: 'right 3; up(2); interact()' });
+    var form = h('form', { class: 'cli-form' }, h('span', { class: 'cli-prompt', 'aria-hidden': 'true', text: '>' }), input);
+    var hist = [], hi = 0, busy = false, timer = null;
+    function say(t, cls) { log.appendChild(h('div', { class: 'cli-line' + (cls ? ' ' + cls : ''), text: t })); while (log.childElementCount > 60) log.removeChild(log.firstChild); log.scrollTop = log.scrollHeight; }
+    function modalOn() { var m = document.getElementById('modal-root'); return !!(m && m.childElementCount); }
+    cleanups.push(function () { clearInterval(timer); });
+
+    function exec(q) {
+      busy = true;
+      function next() {
+        var c = q.shift();
+        if (!c) { busy = false; return; }
+        if (c.t === 'move') {
+          var done = 0, v = CLI_VEC[c.dir];
+          timer = setInterval(function () {
+            if (modalOn()) { clearInterval(timer); q.length = 0; busy = false; say('Dialog terbuka, sisa perintah dibatalkan.', 'info'); return; }
+            if (done >= c.n) { clearInterval(timer); say('ok: ' + c.dir + ' ' + c.n + ' langkah', 'ok'); next(); return; }
+            var moved = world.step(v[0], v[1], true);
+            if (!moved) {
+              clearInterval(timer); q.length = 0; busy = false;
+              say(modalOn() ? 'Bertemu NPC atau portal, dialog dibuka.' : 'Terhalang setelah ' + done + ' langkah (dinding, dekorasi, atau NPC). Sisa perintah dibatalkan.', modalOn() ? 'info' : 'err'); return;
+            }
+            done++;
+          }, 130);
+          return;
+        }
+        var L = world.look();
+        if (c.t === 'act') {
+          if (!L.portal && !L.npcs.length) say('Tidak ada apa pun untuk diajak berinteraksi. Dekati NPC atau berdiri di portal.', 'err');
+          else { say('interact(): ' + (L.portal ? 'membuka portal' : 'bicara dengan ' + L.npcs[0].name), 'ok'); world.interact(); }
+        } else if (c.t === 'wave') { world.emote(); say('wave(): melambai!', 'ok'); }
+        else if (c.t === 'where') say('Posisi (' + L.x + ', ' + L.y + ') di ' + (AREAS[world.area()] ? AREAS[world.area()].name : world.area()) + '.', 'info');
+        else if (c.t === 'look') say(L.portal ? 'Kamu berdiri di portal/pintu. Ketik interact().' : (L.npcs.length ? 'Di dekatmu: ' + L.npcs.map(function (n) { return n.name + (n.kind === 'evil' ? ' (jahat)' : ' (baik)'); }).join(', ') + '. Ketik interact().' : 'Tidak ada NPC atau portal di sekitarmu.'), 'info');
+        else if (c.t === 'help') CLI_HELP.forEach(function (l) { say(l, 'info'); });
+        else if (c.t === 'clear') log.textContent = '';
+        next();
+      }
+      next();
+    }
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var line = input.value.trim(); if (!line) return;
+      if (busy) { say('Tunggu perintah sebelumnya selesai.', 'err'); return; }
+      hist.push(line); hi = hist.length; input.value = '';
+      say('> ' + line, 'cmd');
+      var parts = line.split(/[;\n]+/).map(function (x) { return x.trim(); }).filter(Boolean), q = [], total = 0;
+      for (var i = 0; i < parts.length; i++) {
+        var p = parseCliStmt(parts[i]);
+        if (p.err) { say(p.err, 'err'); return; }
+        if (p.t === 'move') total += p.n;
+        q.push(p);
+      }
+      if (total > 120) { say('Terlalu panjang: maksimal 120 langkah per baris.', 'err'); return; }
+      exec(q);
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowUp') { e.preventDefault(); if (hi > 0) { hi--; input.value = hist[hi]; } }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); if (hi < hist.length - 1) { hi++; input.value = hist[hi]; } else { hi = hist.length; input.value = ''; } }
+    });
+    say('Mode CLI aktif. Ketik "help" untuk daftar perintah.', 'info');
+    say('Contoh: right 3', 'info');
+    var card = h('div', { class: 'card cli-card' }, h('h2', { text: 'Terminal Kontrol' }), log, form,
+      h('p', { class: 'muted', style: 'margin:8px 0 0;font-size:.8rem', text: 'Panah, WASD, klik peta, dan tombol arah dinonaktifkan di mode ini.' }));
+    card.addEventListener('click', function () { input.focus({ preventScroll: true }); });
+    return { card: card, focus: function () { input.focus({ preventScroll: true }); } };
   }
 
   function sceneWorld() {
@@ -637,12 +781,14 @@
     var act = h('button', { type: 'button', class: 'btn btn-primary pad pad-act', 'aria-label': 'Interaksi', text: 'Aksi' });
     var dpad = h('div', { class: 'dpad' }, h('span'), up, h('span'), lf, act, rt, h('span'), dn, h('span'));
 
+    var isCli = save.settings.controlMode === 'cli', moveWord = isCli ? 'perintah ketikan (mis. right 3)' : 'panah atau WASD';
+    var cli = isCli ? makeCli() : null;
     var wrap = h('div', { class: 'pixel-bg scene' }, h('div', { class: 'page' },
       hudBar(p, [btn('Mode Daftar', 'btn-secondary', function () { setView('list'); }), btn('Pengaturan', 'btn-secondary', openSettings)]),
       h('div', { class: 'world-layout' },
         h('section', { 'aria-label': 'Dunia' }, canvas, hint),
         h('aside', { class: 'side' }, where, quest,
-          h('div', { class: 'card' }, h('h2', { text: 'Kontrol' }), dpad,
+          isCli ? cli.card : h('div', { class: 'card' }, h('h2', { text: 'Kontrol' }), dpad,
             h('div', { class: 'row', style: 'justify-content:center;margin-top:8px' }, btn('Lambai (F)', 'btn-secondary', function () { if (world) world.emote(); })),
             h('p', { class: 'muted', style: 'margin-top:10px;font-size:.85rem', text: 'Klik peta untuk berjalan otomatis. Keyboard: panah/WASD, Enter/Spasi untuk berinteraksi, F untuk melambai. Pintu kuning (panah kiri) = kembali ke Plaza.' }))))));
     mount(wrap, 'splash');
@@ -657,9 +803,11 @@
       var tgt = AREAS[startArea].portals.filter(function (q) { return q.mission === lastPortal && q.kind !== 'exit'; })[0];
       if (tgt) spawn = { x: tgt.x, y: tgt.y > AREAS[startArea].h / 2 ? tgt.y - 1 : tgt.y + 1 };
     }
+    if (resume) { startArea = resume.area; spawn = resume.pos; resume = null; }
     function portalName(pt) { return pt.kind === 'exit' ? 'Pintu keluar ke ' + AREAS[pt.to].name : (pt.kind === 'gate' ? 'Gerbang ' + AREAS[pt.to].name : 'Portal ' + MISSIONS[pt.mission].title); }
     world = window.GQWorld.start({
       canvas: canvas, area: startArea, spawn: spawn, finalIndex: MISSIONS.length - 1,
+      controls: function () { return save.settings.controlMode === 'cli' ? 'cli' : 'gui'; },
       unlock: unlockNow >= 0 ? unlockNow : null,
       alert: function (id, n) {
         if (id === 'nara') return !talked.nara && (unlockNow >= 0 || profile().completedMissions.length === 0);
@@ -671,13 +819,13 @@
         lastArea = A.id;
         locLabel.textContent = '';
         locLabel.appendChild(h('b', { text: A.name })); locLabel.appendChild(h('br')); locLabel.appendChild(document.createTextNode(A.sub || ''));
-        hint.textContent = A.id === 'plaza' ? 'Jelajahi Plaza dengan panah atau WASD. Masuk gerbang bernomor untuk membuka peta stage.' : 'Ajak bicara NPC: nama hijau = guru, nama merah = penjahat. Portal level ada di ujung peta.';
+        hint.textContent = A.id === 'plaza' ? 'Jelajahi Plaza dengan ' + moveWord + '. Masuk gerbang bernomor untuk membuka peta stage.' : 'Ajak bicara NPC: nama hijau = guru, nama merah = penjahat. Portal level ada di ujung peta.';
         if (A.id !== 'plaza') sfx('portal');
       },
       onPortal: function (pt) { portalDialog(pt); },
       onNpc: function (id) { talk(id); },
       onHover: function (info) {
-        var base = lastArea === 'plaza' ? 'Jelajahi Plaza dengan panah atau WASD.' : 'Jelajahi peta dengan panah atau WASD.';
+        var base = lastArea === 'plaza' ? 'Jelajahi Plaza dengan ' + moveWord + '.' : 'Jelajahi peta dengan ' + moveWord + '.';
         if (!info) hint.textContent = base;
         else if (info.type === 'portal') hint.textContent = portalName(info.portal) + ' — tekan Enter atau Aksi untuk membuka.';
         else hint.textContent = NPC_INFO[info.id].name + ' ada di dekatmu — tekan Enter atau Aksi untuk bicara.';
@@ -685,9 +833,12 @@
     });
     if (window.GQ_FAST) window.__world = world;   // hanya untuk tes otomatis
     if (unlockNow >= 0) setTimeout(function () { toast('Gerbang Level ' + MISSIONS[unlockNow].no + ' terbuka! Masuk lewat Plaza.'); sfx('unlock'); }, 700);
-    world.attachPad(up, 0, -1); world.attachPad(dn, 0, 1); world.attachPad(lf, -1, 0); world.attachPad(rt, 1, 0);
-    act.addEventListener('click', function () { world.interact(); });
-    canvas.focus({ preventScroll: true });
+    if (isCli) cli.focus();
+    else {
+      world.attachPad(up, 0, -1); world.attachPad(dn, 0, 1); world.attachPad(lf, -1, 0); world.attachPad(rt, 1, 0);
+      act.addEventListener('click', function () { world.interact(); });
+      canvas.focus({ preventScroll: true });
+    }
   }
 
   /* ---------- Arena pertarungan (lapisan RPG; aturan skor tidak berubah) ---------- */

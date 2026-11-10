@@ -244,6 +244,78 @@
     E('w_bugakhir7', 'virus', 34, 16, 'Bug Terakhir', ['Hehe...', 'Aku lolos!'], ['Hehe, aku bug terakhir yang lolos dari review!', '(Pengakuan) Membaca git diff sebelum commit bisa menangkapku. Teliti itu kuncinya.'], 3)
   ]);
 
+  /* ---------- jobdesk NPC: peran tiap karakter (tampil di dialog) ---------- */
+  var JOBS = {
+    nara: 'Pemandu Utama · petunjuk arah & misi', bugbyte: 'Asisten Teknis · kontrol & petunjuk soal', dev1: 'Developer Senior · cerita pengalaman', dev2: 'Developer Magang · analogi mudah',
+    prof: 'Guru VCS · dasar version control', sage1: 'Guru Arsitektur · terpusat vs terdistribusi',
+    stage1: 'Guru Tiga Zona · alur kerja Git', status1: 'Penjaga Status · status berkas', bbzone: 'Pemindai · alur status berkas',
+    config1: 'Guru Konfigurasi · git config', init1: 'Guru Repositori · git init',
+    log1: 'Pustakawan · git log', bbcmd: 'Pemeriksa · git status & diff', add1: 'Kapten Staging · git add',
+    mcommit: 'Guru Commit · git commit', conv: 'Guru Konvensi · pesan commit', tips5: 'Pemberi Tips · kebiasaan commit',
+    vault1: 'Penjaga Brankas · .gitignore', secret1: 'Ahli Keamanan · berkas rahasia',
+    mmerge: 'Guru Ringkasan · materi final', narafinal: 'Pemandu Bos Terakhir · tips ujian'
+  };
+  var AREA_ROLE = { plaza: 'Warga Plaza', vcs: 'Siswa Akademi', 'three-zones': 'Siswa Tiga Zona', setup: 'Siswa Menara Setup', commands: 'Siswa Lab Perintah', commit: 'Siswa Bengkel Commit', gitignore: 'Siswa Gudang Rahasia', final: 'Siswa Benteng' };
+  Object.keys(A).forEach(function (aid) {
+    A[aid].npcs.forEach(function (n) {
+      n.job = JOBS[n.id] || (n.kind === 'evil' ? 'Penyebar Mitos · harus dikoreksi' : (AREA_ROLE[aid] || 'Warga') + ' · berbagi tips');
+    });
+  });
+
+  /* ---------- obrolan antar-NPC: [pembicara 0=a / 1=b, teks pendek]. Yang jahat menyebar mitos, yang baik meluruskan ---------- */
+  var CHATS = {
+    plaza: [
+      { a: 'nara', b: 'bugbyte', l: [[0, 'Bugbyte, ada murid baru?'], [1, 'Bip! Satu terdeteksi.'], [0, 'Tolong ajari kontrolnya ya.'], [1, 'Siap! Enter = bicara.']] },
+      { a: 'w_sinta', b: 'w_aisyah', l: [[0, 'Aisyah, stage mana dulu?'], [1, 'Mulai dari Level 1 dong.'], [0, 'Kalau terkunci gimana?'], [1, 'Selesaikan level sebelumnya!']] },
+      { a: 'w_rian', b: 'w_rina', l: [[0, 'Bu, aku habis lari 3 putaran!'], [1, 'Bagus. Commit juga rutin ya.'], [0, 'Siap, kecil tapi sering!']] },
+      { a: 'w_bugkecil', b: 'bugbyte', l: [[0, 'Hihi, kodenya aku acak ya!'], [1, 'Bip! Bug terdeteksi.'], [0, 'Eh, kok ketahuan?!'], [1, 'git diff menemukanmu.']] },
+      { a: 'dev1', b: 'dev2', l: [[1, 'Kak, apa gunanya git log?'], [0, 'Melihat riwayat commit.'], [1, 'Kayak buku harian ya?'], [0, 'Betul, buku harian proyek.']] }
+    ],
+    vcs: [
+      { a: 'prof', b: 'w_sinta1', l: [[1, 'Prof, kenapa perlu VCS?'], [0, 'Supaya semua versi tercatat.'], [1, 'Bisa balik ke versi lama?'], [0, 'Tentu, itu gunanya.']] },
+      { a: 'w_iseng1', b: 'w_doni1', l: [[0, 'Tanpa riwayat, aman deh!'], [1, 'Salah. Siapa yang ubah, tahu?'], [0, 'Eh... tidak tahu.'], [1, 'Makanya pakai Git.']] },
+      { a: 'copy', b: 'sage1', l: [[0, 'Salin folder saja cukup!'], [1, 'Folder jadi berantakan.'], [0, 'proyek_final_v9...'], [1, 'Git rapi satu folder.']] },
+      { a: 'serverdown', b: 'w_doni1', l: [[0, 'Servernya mati. Semua stop!'], [1, 'Di Git semua punya salinan.'], [0, 'Kalau begitu aku kalah...']] }
+    ],
+    'three-zones': [
+      { a: 'stage1', b: 'w_aisyah2', l: [[1, 'Kak, urutan tiga zona?'], [0, 'Working, Staging, Repository.'], [1, 'Pakai add lalu commit!'], [0, 'Tepat sekali.']] },
+      { a: 'w_rancu', b: 'bbzone', l: [[0, 'Staging dan commit sama kan?'], [1, 'Bip! Beda. Staging = memilih.'], [0, 'Lalu commit?'], [1, 'Commit = menyimpan permanen.']] },
+      { a: 'status1', b: 'w_doni2', l: [[1, 'Pak, berkas baruku apa statusnya?'], [0, 'Untracked, belum dilacak.'], [1, 'Setelah git add?'], [0, 'Staged, siap di-commit.']] },
+      { a: 'noadd', b: 'status1', l: [[0, 'Langsung commit tanpa add!'], [1, 'Tidak ada yang tersimpan.'], [0, 'Hah? Kok kosong?'], [1, 'Add dulu, baru commit.']] }
+    ],
+    setup: [
+      { a: 'config1', b: 'w_sinta3', l: [[1, 'Pak, isi identitas bagaimana?'], [0, 'git config --global user.name'], [1, 'Email juga?'], [0, 'Ya, user.email juga.']] },
+      { a: 'init1', b: 'w_rian3', l: [[1, 'git init itu apa?'], [0, 'Membuat folder .git.'], [1, 'Cukup sekali?'], [0, 'Ya, sekali per proyek.']] },
+      { a: 'anon', b: 'config1', l: [[0, 'Identitas? Kosongkan saja!'], [1, 'Commit-mu jadi anonim.'], [0, 'Tak ada yang tahu aku!'], [1, 'Itu masalahnya, tahu?']] },
+      { a: 'w_lupa3', b: 'init1', l: [[0, 'git init di mana saja, bebas!'], [1, 'Masuk folder proyek dulu.'], [0, 'cd dulu ya...'], [1, 'Nah, baru git init.']] }
+    ],
+    commands: [
+      { a: 'log1', b: 'w_doni4', l: [[1, 'Bu, log-nya panjang sekali.'], [0, 'Pakai --oneline.'], [1, 'Jadi satu baris tiap commit?'], [0, 'Betul, lebih ringkas.']] },
+      { a: 'bbcmd', b: 'w_aisyah4', l: [[1, 'Beda status dan diff?'], [0, 'Bip! status = daftar berkas.'], [1, 'Kalau diff?'], [0, 'diff = isi perubahannya.']] },
+      { a: 'addall', b: 'add1', l: [[0, 'git add . terus tanpa lihat!'], [1, 'Cek git status dulu.'], [0, 'Biar cepat!'], [1, 'Cepat boleh, ceroboh jangan.']] },
+      { a: 'w_panik4', b: 'log1', l: [[0, 'Tebak saja siapa pelakunya!'], [1, 'Jangan menebak.'], [0, 'Lalu apa?'], [1, 'Baca git log dulu.']] }
+    ],
+    commit: [
+      { a: 'mcommit', b: 'w_sinta5', l: [[1, 'Pesan commit yang bagus?'], [0, 'Singkat dan jelas.'], [1, 'Contohnya?'], [0, 'feat: tambah tombol login.']] },
+      { a: 'asal', b: 'conv', l: [[0, 'Pesan commit "update" cukup!'], [1, '"update" apa? Tidak jelas.'], [0, 'Hemat waktu!'], [1, 'Pakai feat: atau fix:.']] },
+      { a: 'tips5', b: 'w_rian5', l: [[1, 'Seberapa sering commit?'], [0, 'Sering, tiap perubahan logis.'], [1, 'Kecil-kecil ya?'], [0, 'Ya, mudah dilacak.']] },
+      { a: 'w_raksasa5', b: 'mcommit', l: [[0, 'Satu commit buat semuanya!'], [1, 'Sulit ditinjau.'], [0, 'Tapi praktis!'], [1, 'Pecah per perubahan.']] }
+    ],
+    gitignore: [
+      { a: 'vault1', b: 'w_aisyah6', l: [[1, 'Apa isi .gitignore?'], [0, 'Berkas yang tak dilacak.'], [1, 'Contohnya?'], [0, 'node_modules/ dan *.log.']] },
+      { a: 'thief', b: 'secret1', l: [[0, 'Commit .env ke GitHub saja!'], [1, 'Jangan! Itu rahasia.'], [0, 'Aku butuh API key-mu...'], [1, 'Makanya masuk .gitignore.']] },
+      { a: 'nodemod', b: 'w_rina6', l: [[0, 'Masukkan aku ke repositori!'], [1, 'Terlalu berat. Abaikan!'], [0, 'Aku ratusan MB lho.'], [1, 'npm install bisa ulang.']] },
+      { a: 'w_ceroboh6', b: 'secret1', l: [[0, 'Password ditulis di kode saja.'], [1, 'Simpan di .env.'], [0, 'Gampang diingat sih...'], [1, 'Aman lebih penting.']] }
+    ],
+    final: [
+      { a: 'mmerge', b: 'narafinal', l: [[1, 'Master, murid siap tempur?'], [0, 'Ingat edit, add, commit.'], [1, 'Aku pandu mereka ke bos.'], [0, 'Bagus, tenang dan teliti.']] },
+      { a: 'w_doni7', b: 'w_rian7', l: [[0, 'Bos terakhir seram nggak?'], [1, 'Waktunya terbatas.'], [0, 'Akurasi atau kecepatan?'], [1, 'Akurasi dulu!']] },
+      { a: 'lordconf', b: 'w_rina7', l: [[0, 'Kuhancurkan semua commit!'], [1, 'Kami teliti, kami menang.'], [0, 'Hah, sombong!'], [1, 'Latihan tak mengkhianati.']] },
+      { a: 'glitchf', b: 'w_bugakhir7', l: [[0, 'Kamu lolos dari review?'], [1, 'Hehe, iya.'], [0, 'git diff akan menangkap kita.'], [1, 'Duh, kabur!']] }
+    ]
+  };
+  window.GQ_CHATS = CHATS;
+
   // efek layar khas tiap wilayah (digambar js/world.js)
   var FX = { plaza: 'lanterns', vcs: 'pages', 'three-zones': 'orbs', setup: 'sparks', commands: 'rain', commit: 'forge', gitignore: 'laser', final: 'storm' };
   Object.keys(FX).forEach(function (id) { A[id].theme.fx = FX[id]; });

@@ -288,7 +288,7 @@
     var x = 0, y = 0, rx = 0, ry = 0, face = 1, raf = 0, dead = false, lastKey = 0, lastHover = '';
     var camX = 0, camY = 0, fadeT0 = 0, bannerT0 = 0;
     var timers = [], walkTimer = null, walkPath = null, marker = null, hopT = 0, pSay = null;
-    var puffs = [], sparks = [], unlockT0 = 0, unlockPortal = null, fxp = [], bolt = null, nextBolt = 0, flash = 0, vig = null;
+    var puffs = [], sparks = [], unlockT0 = 0, unlockPortal = null, chat = null, nextChat = 0, beacon = null, fxp = [], bolt = null, nextBolt = 0, flash = 0, vig = null;
     var unlockIdx = (opts.unlock === undefined || opts.unlock === null) ? -1 : opts.unlock;
 
     function calmNow() { return !!(opts.reduceMotion && opts.reduceMotion()); }
@@ -319,7 +319,7 @@
       for (var q = 0; q < n; q++) motes.push({ x: Math.random() * cur.W * T, y: Math.random() * cur.H * T, s: 8 + Math.random() * 16, c: (cur.th.mote ? cur.th.mote.c[Math.floor(Math.random() * cur.th.mote.c.length)] : (Math.random() < .5 ? '#22d3ee' : cur.th.glow)), p: Math.random() * 6 });
       unlockPortal = null; unlockT0 = 0;
       if (unlockIdx >= 0) cur.A.portals.forEach(function (p) { if (p.kind === 'gate' && p.mission === unlockIdx) unlockPortal = p; });
-      sparks = []; puffs = []; marker = null; lastHover = ''; initFx();
+      sparks = []; puffs = []; marker = null; lastHover = ''; chat = null; beacon = null; nextChat = performance.now() + 6000; initFx();
     }
     function spawnFor(id, from) {
       var c = compile(id);
@@ -491,7 +491,7 @@
     function wander(now) {
       if (window.GQ_FAST || modalOpen() || calmNow()) return;
       npcs.forEach(function (n) {
-        if (!n.wander || now < n.nextMove) return;
+        if (!n.wander || n.chatting || now < n.nextMove) return;
         n.nextMove = now + 900 + Math.random() * 2800;
         if (Math.random() < .25) return;
         var d = D4[Math.floor(Math.random() * 4)], nx = n.x + d[0], ny = n.y + d[1];
@@ -500,6 +500,75 @@
         if (d[0]) n.face = d[0];
         n.x = nx; n.y = ny;
       });
+    }
+    /* ---------- obrolan antar-NPC ---------- */
+    function npcById(id) { for (var i = 0; i < npcs.length; i++) if (npcs[i].id === id) return npcs[i]; return null; }
+    function freeTile(nx, ny) { return !isBlocked(nx, ny) && !portalAt(nx, ny) && !npcAt(nx, ny) && !(nx === x && ny === y); }
+    /** Satu langkah serakah NPC menuju (tx,ty); true bila bergerak. */
+    function stepToward(n, tx, ty) {
+      var dx = tx - n.x, dy = ty - n.y, opts2 = [];
+      if (Math.abs(dx) >= Math.abs(dy)) { if (dx) opts2.push([Math.sign(dx), 0]); if (dy) opts2.push([0, Math.sign(dy)]); } else { if (dy) opts2.push([0, Math.sign(dy)]); if (dx) opts2.push([Math.sign(dx), 0]); }
+      for (var i = 0; i < opts2.length; i++) { var nx = n.x + opts2[i][0], ny = n.y + opts2[i][1]; if (freeTile(nx, ny)) { if (opts2[i][0]) n.face = opts2[i][0]; n.x = nx; n.y = ny; return true; } }
+      return false;
+    }
+    function endChat() { if (chat) { chat.a.chatting = chat.b.chatting = false; chat = null; } }
+    /** Mulai obrolan (idx = indeks tertentu, selain itu acak yang dekat pemain). Mengembalikan true bila dimulai. */
+    function startChat(idx) {
+      var list = (window.GQ_CHATS || {})[cur.id] || [], ok = [];
+      list.forEach(function (c, i) {
+        var a = npcById(c.a), b = npcById(c.b); if (!a || !b) return;
+        if (idx == null && Math.abs(a.x - x) + Math.abs(a.y - y) > 18) return;
+        ok.push(i);
+      });
+      if (idx != null) ok = ok.indexOf(idx) >= 0 ? [idx] : [];
+      if (!ok.length) return false;
+      var c = list[ok[Math.floor(Math.random() * ok.length)]], a = npcById(c.a), b = npcById(c.b);
+      var mover = a.wander ? a : (b.wander ? b : null);
+      chat = { a: a, b: b, l: c.l, i: 0, phase: mover ? 'approach' : 'talk', mover: mover, other: mover === a ? b : a, next: 0, tries: 0 };
+      a.chatting = b.chatting = true;
+      return true;
+    }
+    function chatTick(now) {
+      if (!chat) return;
+      if (modalOpen() || calmNow()) { endChat(); return; }
+      var c = chat, m = c.mover;
+      if (now < c.next) return;
+      if (c.phase === 'approach') {
+        if (Math.abs(m.x - c.other.x) + Math.abs(m.y - c.other.y) <= 2 || c.tries > 16 || !stepToward(m, c.other.x, c.other.y)) { c.phase = 'talk'; c.next = now + 250; return; }
+        c.tries++; c.next = now + 330; return;
+      }
+      if (c.phase === 'talk') {
+        if (c.i >= c.l.length) { c.phase = m ? 'home' : 'done'; c.tries = 0; c.next = now + 500; return; }
+        var ln = c.l[c.i++], sp = ln[0] ? c.b : c.a, ot = ln[0] ? c.a : c.b;
+        sp.bub = { text: ln[1], until: now + 2700 }; sp.hopT = now; sp.lastSay = now;
+        if (ot.x !== sp.x) { sp.face = ot.x > sp.x ? 1 : -1; ot.face = -sp.face; }
+        c.next = now + 2900; return;
+      }
+      if (c.phase === 'home') {
+        if ((m.x === m.hx && m.y === m.hy) || c.tries > 24 || !stepToward(m, m.hx, m.hy)) { endChat(); nextChat = now + 9000 + Math.random() * 9000; return; }
+        c.tries++; c.next = now + 330; return;
+      }
+      endChat(); nextChat = now + 9000 + Math.random() * 9000;
+    }
+    function chatSchedule(now) {
+      if (window.GQ_FAST || chat || modalOpen() || calmNow() || now < nextChat) return;
+      nextChat = now + 9000 + Math.random() * 9000;
+      startChat(null);
+    }
+    /** Penunjuk arah: cincin + panah berdenyut di tujuan selama beberapa detik. */
+    function guide(tx, ty, label) { beacon = { x: tx, y: ty, label: label || '', t0: performance.now(), until: performance.now() + 20000 }; }
+    /** Daftar tujuan di area ini untuk "Tanya arah". */
+    function dests() {
+      var out = [];
+      cur.A.portals.forEach(function (p) { out.push({ type: 'portal', portal: p, x: p.x, y: p.y }); });
+      npcs.forEach(function (n) { out.push({ type: 'npc', id: n.id, name: n.name, kind: n.kind, x: n.x, y: n.y }); });
+      return out;
+    }
+
+    /** Ringkasan sekitar pemain (untuk perintah look() di mode CLI). */
+    function look() {
+      var ns = []; D4.forEach(function (d) { var n = npcAt(x + d[0], y + d[1]); if (n) ns.push({ id: n.id, name: n.name, kind: n.kind }); });
+      return { x: x, y: y, portal: portalAt(x, y), npcs: ns };
     }
     function emote(text) { hopT = performance.now(); pSay = { text: text || PLAYER_SAY[Math.floor(Math.random() * PLAYER_SAY.length)], until: hopT + 1500 }; }
 
@@ -530,7 +599,7 @@
       return true;
     }
     function onClick(e) {
-      if (dead || modalOpen()) return;
+      if (dead || modalOpen() || (opts.controls && opts.controls() === 'cli')) return;
       var r = canvas.getBoundingClientRect();
       var wx = camX + (e.clientX - r.left) / r.width * canvas.width, wy = camY + (e.clientY - r.top) / r.height * canvas.height;
       var tx = Math.floor(wx / T), ty = Math.floor(wy / T);
@@ -544,6 +613,7 @@
       if (dead) return;
       var tag = (e.target && e.target.tagName) || '';
       if (/INPUT|SELECT|TEXTAREA/.test(tag) || modalOpen()) return;
+      if (opts.controls && opts.controls() === 'cli') return;   // mode CLI: gerak hanya lewat perintah ketikan
       var k = e.key, dx = 0, dy = 0;
       if (k === 'ArrowLeft' || k === 'a' || k === 'A') dx = -1;
       else if (k === 'ArrowRight' || k === 'd' || k === 'D') dx = 1;
@@ -641,7 +711,10 @@
       cur.A.portals.forEach(function (p) { var st = portalStatus(p, t); ctx.fillStyle = st === 'exit' ? '#EAB308' : (STATUS_COLOR[st] || '#6B7280'); ctx.fillRect(mx + p.x * S - 1, my + p.y * S - 1, S + 2, S + 2); });
       npcs.forEach(function (n) { ctx.fillStyle = n.kind === 'evil' ? '#EF4444' : '#22C55E'; ctx.fillRect(mx + n.x * S, my + n.y * S, S, S); });
       ctx.strokeStyle = 'rgba(249,250,251,.45)'; ctx.lineWidth = 1; ctx.strokeRect(mx + camX / T * S + .5, my + camY / T * S + .5, VW * S, VH * S);
-      if (calmNow() || Math.floor(t / 300) % 2) { ctx.fillStyle = '#EAB308'; ctx.fillRect(mx + Math.round(rx) * S - 1, my + Math.round(ry) * S - 1, S + 2, S + 2); }
+      var pmx = mx + Math.round(rx) * S + S / 2, pmy = my + Math.round(ry) * S + S / 2, pg = calmNow() ? 0 : (t / 60) % 14;   // penanda pemain di minimap: titik besar + gelombang
+      if (!calmNow()) { ctx.globalAlpha = Math.max(0, .7 - pg / 14 * .7); ctx.strokeStyle = '#EAB308'; ctx.lineWidth = 1; ctx.strokeRect(pmx - 3 - pg, pmy - 3 - pg, 6 + pg * 2, 6 + pg * 2); ctx.globalAlpha = .88; }
+      ctx.fillStyle = '#0b1220'; ctx.fillRect(pmx - 4, pmy - 4, 8, 8);
+      ctx.fillStyle = Math.floor(t / 300) % 2 || calmNow() ? '#EAB308' : '#F9FAFB'; ctx.fillRect(pmx - 3, pmy - 3, 6, 6);
       ctx.globalAlpha = 1;
     }
 
@@ -683,7 +756,7 @@
         if (ma <= 0) marker = null;
         else { ctx.globalAlpha = ma; ctx.strokeStyle = '#EAB308'; ctx.lineWidth = 2; var rr = 6 + (1 - ma) * 8; ctx.strokeRect(marker.x * T + T / 2 - rr, marker.y * T + T / 2 - rr, rr * 2, rr * 2); ctx.globalAlpha = 1; }
       }
-      wander(now);
+      wander(now); chatSchedule(now); chatTick(now);
       var list = npcs.map(function (n) {
         n.rx += (n.x - n.rx) * .2; n.ry += (n.y - n.ry) * .2;
         if (Math.abs(n.x - n.rx) < .03) n.rx = n.x;
@@ -730,7 +803,17 @@
         var hop = hopT && now - hopT < 420 ? Math.sin((now - hopT) / 420 * Math.PI) * 12 : 0;
         var fr = moving ? (Math.floor(t / 110) % 2 ? 'walk1' : 'walk2') : (calm ? 'idle' : (Math.floor(t / 700) % 2 ? 'walk2' : 'idle'));
         if (moving && window.GQChars.getTier() >= 6 && !calm) puffs.push({ x: rx * T + T / 2, y: ry * T + T - 12, t: now, gold: 1 });
+        var pcx = rx * T + T / 2, pfy = ry * T + T - 6;
+        if (!calm) {   // cincin kuning berdenyut di kaki: penanda karakter kamu
+          var pr = 17 + Math.sin(t / 240) * 2.5;
+          ctx.globalAlpha = .55; ctx.strokeStyle = '#EAB308'; ctx.lineWidth = 2; ctx.strokeRect(pcx - pr, pfy - pr * .42, pr * 2, pr * .84);
+          ctx.globalAlpha = .18; ctx.fillStyle = '#EAB308'; ctx.fillRect(pcx - pr, pfy - pr * .42, pr * 2, pr * .84); ctx.globalAlpha = 1;
+        }
         drawSprite('player', rx, ry, face, (moving ? Math.abs(Math.sin(t / 60)) * 3 : 0) + hop, fr);
+        // tanda "KAMU": label + panah melayang di atas kepala
+        var bob = calm ? 0 : Math.round(Math.abs(Math.sin(t / 260)) * 4), ty0 = ry * T + T - sprH('player') - 24 - hop - bob - (pSay && now < pSay.until ? 26 : 0);
+        tag('KAMU', pcx, ty0, '#EAB308');
+        ctx.fillStyle = '#EAB308'; ctx.fillRect(pcx - 4, ty0 + 15, 8, 3); ctx.fillRect(pcx - 2, ty0 + 18, 4, 3);
         if (pSay && now < pSay.until) bubble(pSay.text, rx * T + T / 2, ry * T + T - 48 - 6 - hop);
       } });
       list.sort(function (a, b) { return a.y - b.y; }).forEach(function (o) { o.draw(); });
@@ -760,6 +843,22 @@
 
       // lapisan layar: efek wilayah, vinyet, minimap, spanduk nama area, fade antar-peta
       if (!calm) { areaFx(t, now); drawVignette(); }
+      if (beacon) {
+        if (now > beacon.until) beacon = null;
+        else {
+          var bx = beacon.x * T + T / 2 - camX, by2 = beacon.y * T + T / 2 - camY, W2 = canvas.width, H2 = canvas.height;
+          if (bx >= 12 && bx <= W2 - 12 && by2 >= 12 && by2 <= H2 - 12) {
+            var pp = (now - beacon.t0) % 1000 / 1000;
+            ctx.strokeStyle = '#EAB308'; ctx.lineWidth = 2; ctx.globalAlpha = 1 - pp; var r2 = 8 + pp * 26; ctx.strokeRect(bx - r2, by2 - r2, r2 * 2, r2 * 2);
+            ctx.globalAlpha = 1; ctx.fillStyle = '#EAB308'; var bob = Math.round(Math.abs(Math.sin(now / 200)) * 6);
+            ctx.fillRect(bx - 5, by2 - 44 - bob, 10, 4); ctx.fillRect(bx - 3, by2 - 40 - bob, 6, 4); ctx.fillRect(bx - 1, by2 - 36 - bob, 2, 4);
+          } else {   // di luar layar: panah tepi
+            var ang = Math.atan2(by2 - H2 / 2, bx - W2 / 2), ex = Math.max(22, Math.min(W2 - 22, W2 / 2 + Math.cos(ang) * W2)), ey = Math.max(22, Math.min(H2 - 22, H2 / 2 + Math.sin(ang) * H2));
+            ctx.save(); ctx.translate(ex, ey); ctx.rotate(ang); ctx.globalAlpha = .6 + .4 * Math.sin(now / 160);
+            ctx.fillStyle = '#EAB308'; ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(-8, -9); ctx.lineTo(-4, 0); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill(); ctx.restore(); ctx.globalAlpha = 1;
+          }
+        }
+      }
       drawMini(t);
       if (bannerT0) {
         var be = now - bannerT0;
@@ -787,7 +886,7 @@
     raf = requestAnimationFrame(frame);
 
     return {
-      step: step, interact: interact, attachPad: attachPad, emote: emote, goTo: goTo, enter: enter,
+      step: step, interact: interact, look: look, guide: guide, dests: dests, startChat: startChat, chatTick: chatTick, chatting: function () { return !!chat; }, attachPad: attachPad, emote: emote, goTo: goTo, enter: enter,
       pos: function () { return { x: x, y: y }; },
       area: function () { return cur.id; },
       destroy: function () {

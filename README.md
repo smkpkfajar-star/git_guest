@@ -38,7 +38,7 @@ docs/                    storyboard, design, game rules, requirements, plan
 ## Status
 
 - 10 karakter anime yang bisa dikustomisasi dan berevolusi seiring level (lihat `docs/characters.md`).
-- 8 peta (Plaza + satu peta per stage) dengan kamera, minimap, serta NPC baik dan jahat yang menjelaskan materi (lihat `docs/world_maps.md`).
+- 8 peta (Plaza + satu peta per stage) dengan kamera, minimap, serta NPC baik dan jahat yang menjelaskan materi, punya jobdesk, memberi petunjuk arah, dan saling mengobrol; karakter pemain ditandai "KAMU" (lihat `docs/world_maps.md`).
 - Mode RPG: jelajahi dunia, bicara dengan NPC, masuk portal, lalu bertarung dengan monster (lihat `docs/rpg_mode.md`).
 - Ketujuh stage dapat dimainkan, masing-masing dengan tipe game berbeda (lihat `docs/stage_games.md`).
 - Game dapat ditamatkan: kondisi kemenangan dan gelar Repository Guardian aktif.

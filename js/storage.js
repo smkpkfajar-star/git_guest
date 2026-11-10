@@ -19,7 +19,7 @@
   }
 
   function defaultSave() {
-    return { saveVersion: SAVE_VERSION, activeProfile: null, profiles: {}, settings: { sound: true, reduceMotion: false, viewMode: 'world', relaxTimer: false } };
+    return { saveVersion: SAVE_VERSION, activeProfile: null, profiles: {}, settings: { sound: true, reduceMotion: false, viewMode: 'world', relaxTimer: false, controlMode: 'gui' } };
   }
 
   function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
@@ -60,6 +60,7 @@
       out.settings.reduceMotion = d.settings.reduceMotion === true;
       out.settings.viewMode = d.settings.viewMode === 'list' ? 'list' : 'world';
       out.settings.relaxTimer = d.settings.relaxTimer === true;
+      out.settings.controlMode = d.settings.controlMode === 'cli' ? 'cli' : 'gui';
     }
     return out;
   }
