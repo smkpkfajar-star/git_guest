@@ -237,6 +237,8 @@
       splash: sceneSplash, profile: sceneProfile, intro: sceneIntro, creator: sceneCreator, dashboard: sceneDashboard, world: sceneWorld,
       material: sceneMaterial, challenge: sceneChallenge, result: sceneResult
     }[scene];
+    // kembali ke menu utama / pilih profil = mulai bersih: posisi peta pemain sebelumnya tidak terbawa ke profil lain
+    if (scene === 'splash' || scene === 'profile') { lastArea = 'plaza'; lastPortal = -1; pendingUnlock = -1; talked = {}; }
     applyPlayerLook();
     fn(arg);
     var mid = scene === 'material' ? MISSIONS[arg].id : ((scene === 'challenge' || scene === 'result') && run ? run.mission.id : null);
@@ -283,7 +285,7 @@
           h('div', { class: 'mc-row' }, mcBtn('Cara Main', openHowTo), mcBtn('Pengaturan', openSettings)),
           h('div', { class: 'mc-row' }, sndBtn, motBtn)),
         h('p', { class: 'mc-hint', text: save.settings.sound ? 'Klik di mana saja untuk memulai musik.' : '' })),
-      h('div', { class: 'mc-foot' }, h('span', { text: 'GIT QUEST • Tanpa database' }), h('span', { text: 'Untuk siswa SMK RPL' }))));
+      h('div', { class: 'mc-foot' }, h('span', { text: 'GIT QUEST ' }), h('span', { text: 'Untuk siswa SMK RPL' }))));
     upd();
     var pn = window.GQFX.panorama(pano, { reduce: function () { return !!save.settings.reduceMotion; } });
     cleanups.push(pn.destroy);
@@ -502,7 +504,7 @@
     });
 
     mount(h('div', { class: 'pixel-bg scene' }, h('div', { class: 'page' },
-      hudBar(p, [btn('Mode Dunia', 'btn-primary', function () { setView('world'); }), btn('Pengaturan', 'btn-secondary', openSettings), btn('Ganti Profil', 'btn-secondary', function () { go('profile'); })]),
+      hudBar(p, [btn('Mode Dunia', 'btn-primary', function () { setView('world'); }), btn('Pengaturan', 'btn-secondary', openSettings)]),
       h('div', { class: 'layout-2' },
         h('section', { 'aria-label': 'Peta misi' }, h('h2', { text: 'Peta Misi' }), h('div', { class: 'map' }, cards)),
         h('aside', { class: 'side' },
@@ -636,7 +638,7 @@
     var dpad = h('div', { class: 'dpad' }, h('span'), up, h('span'), lf, act, rt, h('span'), dn, h('span'));
 
     var wrap = h('div', { class: 'pixel-bg scene' }, h('div', { class: 'page' },
-      hudBar(p, [btn('Mode Daftar', 'btn-secondary', function () { setView('list'); }), btn('Pengaturan', 'btn-secondary', openSettings), btn('Ganti Profil', 'btn-secondary', function () { go('profile'); })]),
+      hudBar(p, [btn('Mode Daftar', 'btn-secondary', function () { setView('list'); }), btn('Pengaturan', 'btn-secondary', openSettings)]),
       h('div', { class: 'world-layout' },
         h('section', { 'aria-label': 'Dunia' }, canvas, hint),
         h('aside', { class: 'side' }, where, quest,
@@ -648,6 +650,9 @@
     var unlockNow = pendingUnlock; pendingUnlock = -1;
     // Setelah menamatkan level pertama kali: kembali ke Plaza (animasi gerbang berikutnya terbuka). Lainnya: ke peta terakhir.
     var startArea = unlockNow >= 0 ? 'plaza' : (AREAS[lastArea] ? lastArea : 'plaza'), spawn = null;
+    // pengaman: jangan mulai di peta stage yang belum terbuka untuk profil ini
+    var startMi = MISSIONS.findIndex(function (m) { return m.id === startArea; });
+    if (startMi >= 0 && ['available', 'completed'].indexOf(missionStatus(startMi)) < 0) { startArea = 'plaza'; lastArea = 'plaza'; lastPortal = -1; }
     if (lastPortal >= 0) {
       var tgt = AREAS[startArea].portals.filter(function (q) { return q.mission === lastPortal && q.kind !== 'exit'; })[0];
       if (tgt) spawn = { x: tgt.x, y: tgt.y > AREAS[startArea].h / 2 ? tgt.y - 1 : tgt.y + 1 };
