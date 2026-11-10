@@ -1,0 +1,1139 @@
+/* app.js — alur adegan GIT QUEST:
+   Splash → Profil → Intro → Dashboard → Materi → Tantangan → Hasil.
+   Semua teks pemain dirender lewat textContent (tanpa innerHTML). */
+(function () {
+  'use strict';
+
+  var MISSIONS = window.GQ_MISSIONS;
+  var Store = window.GQStorage;
+  var Score = window.GQScoring;
+  var save = Store.loadGame();
+  var warnedStorage = false;
+  var run = null; // sesi tantangan aktif
+  var world = null; // instans dunia (overworld) yang sedang tampil
+  var lastPortal = -1;
+  var pendingUnlock = -1;      // portal yang baru terbuka (dianimasikan saat kembali ke dunia)
+  var disposePart = null;      // pembersih timer/listener mini-game aktif
+  var cleanups = [];           // pembersih animasi/timer adegan (dijalankan saat berpindah adegan)
+  var $app = document.getElementById('app');
+
+  /* ---------- helpers ---------- */
+  function h(tag, props) {
+    var el = document.createElement(tag);
+    props = props || {};
+    Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = v;
+      else if (k.indexOf('on') === 0) el.addEventListener(k.slice(2), v);
+      else if (v === true) el.setAttribute(k, '');
+      else el.setAttribute(k, v);
+    });
+    for (var i = 2; i < arguments.length; i++) append(el, arguments[i]);
+    return el;
+  }
+  function append(el, c) {
+    if (c === null || c === undefined || c === false) return;
+    if (Array.isArray(c)) { c.forEach(function (x) { append(el, x); }); return; }
+    el.appendChild(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  function btn(label, cls, onclick, extra) {
+    return h('button', Object.assign({ type: 'button', class: 'btn ' + cls, onclick: function (e) { sfx('click'); onclick(e); }, text: label }, extra || {}));
+  }
+
+  function profile() { return save.profiles[save.activeProfile] || null; }
+  /** Tampilan karakter profil (default: Rafi) dan penerapannya ke seluruh game (efek naik seiring level). */
+  function charOf(p) { return (p && p.char) ? Object.assign({}, p.char) : window.GQChars.defaults('rafi'); }
+  function applyPlayerLook() { var p = profile(); window.GQChars.setPlayer(charOf(p), p ? Score.levelInfo(p.xp).tier : 0); }
+  function persist() {
+    var ok = Store.saveGame(save);
+    if (!ok && !warnedStorage) {
+      warnedStorage = true;
+      var closeWarn;
+      closeWarn = openModal('Progres gagal disimpan', [
+        h('p', { text: 'Penyimpanan browser tidak tersedia atau penuh, sehingga progres bisa hilang saat halaman ditutup. Unduh progres sebagai file JSON agar tetap aman.' }),
+        h('div', { class: 'row' },
+          btn('Unduh progres', 'btn-primary', function () { exportProgress(); }),
+          btn('Tutup', 'btn-secondary', function () { closeWarn(); }))
+      ]);
+    }
+    return ok;
+  }
+
+  var toastTimer;
+  function toast(msg, warn) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (warn ? ' warn' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = 'toast'; }, warn ? 6000 : 2200);
+  }
+
+  function applySettings() {
+    document.body.classList.toggle('reduce-motion', !!save.settings.reduceMotion);
+  }
+
+  /* Audio: efek & musik dari assets/audio. Hanya aktif bila "Suara" dinyalakan. */
+  var SFX = {}, tracks = {}, curTrack = null, wantTrack = null, MUSIC_VOL = 0.3;
+  function sfx(name) {
+    if (!save.settings.sound) return;
+    try {
+      var a = SFX[name] || (SFX[name] = new Audio('assets/audio/sfx-' + name + '.wav'));
+      a.currentTime = 0; a.volume = 0.6;
+      var p = a.play(); if (p && p.catch) p.catch(function () {});
+    } catch (e) { /* suara opsional */ }
+  }
+  function trackEl(n) {
+    if (!tracks[n]) { var a = new Audio('assets/audio/music-' + n + '.wav'); a.loop = true; a.volume = 0; a.preload = 'auto'; tracks[n] = a; }
+    return tracks[n];
+  }
+  function fade(el, to, ms, pauseAtEnd) {
+    clearInterval(el._f); var from = el.volume, t0 = Date.now();
+    el._f = setInterval(function () {
+      var k = Math.min(1, (Date.now() - t0) / ms); el.volume = Math.max(0, Math.min(1, from + (to - from) * k));
+      if (k >= 1) { clearInterval(el._f); if (pauseAtEnd) el.pause(); }
+    }, 50);
+  }
+  function playEl(el) { try { var p = el.play(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* abaikan */ } }
+  /** Musik latar berbeda tiap adegan/stage; berpindah dengan crossfade. */
+  function syncMusic() {
+    try {
+      if (!save.settings.sound) { Object.keys(tracks).forEach(function (k) { clearInterval(tracks[k]._f); tracks[k].pause(); }); curTrack = null; return; }
+      if (!wantTrack) return;
+      if (curTrack === wantTrack) { var cur = trackEl(curTrack); if (cur.paused) { playEl(cur); fade(cur, MUSIC_VOL, 600); } return; }
+      var old = curTrack ? tracks[curTrack] : null, ne = trackEl(wantTrack);
+      curTrack = wantTrack; ne.volume = 0; playEl(ne); fade(ne, MUSIC_VOL, 1000);
+      if (old) fade(old, 0, 800, true);
+    } catch (e) { /* musik opsional */ }
+  }
+  function setTrack(n) { wantTrack = n; syncMusic(); }
+  function duckMusic() { if (curTrack && tracks[curTrack]) fade(tracks[curTrack], 0.04, 400); }
+  function icon(name, cls) { return h('img', { src: 'assets/images/icons/' + name + '.svg', alt: '', class: 'ico-img' + (cls ? ' ' + cls : '') }); }
+
+  function mount(node, bg) {
+    if (world) { world.destroy(); world = null; }
+    if (disposePart) { try { disposePart(); } catch (e) { /* abaikan */ } disposePart = null; }
+    cleanups.splice(0).forEach(function (f) { try { f(); } catch (e) { /* abaikan */ } });
+    if (bg) node.classList.add('bg-' + bg);
+    $app.textContent = '';
+    $app.appendChild(node);
+    $app.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+  }
+
+  /* ---------- modal ---------- */
+  function openModal(title, bodyNodes, onClose) {
+    var root = document.getElementById('modal-root');
+    var prev = document.activeElement;
+    var back = h('div', { class: 'modal-back' });
+    var modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, h('h2', { text: title }), bodyNodes);
+    back.appendChild(modal);
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      root.textContent = '';
+      if (prev && prev.focus) prev.focus();
+      if (onClose) onClose();
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { close(); return; }
+      if (e.key === 'Tab') {
+        var f = modal.querySelectorAll('button, input, select, a[href]');
+        if (!f.length) return;
+        var first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    back.addEventListener('mousedown', function (e) { if (e.target === back) close(); });
+    document.addEventListener('keydown', onKey);
+    root.textContent = '';
+    root.appendChild(back);
+    var focusable = modal.querySelector('button, input');
+    if (focusable) focusable.focus();
+    return close;
+  }
+
+  function confirmModal(title, text, confirmLabel, onConfirm) {
+    var close;
+    var body = [
+      h('p', { text: text }),
+      h('div', { class: 'row' },
+        btn(confirmLabel, 'btn-danger', function () { close(); onConfirm(); }),
+        btn('Batal', 'btn-secondary', function () { close(); }))
+    ];
+    close = openModal(title, body);
+  }
+
+  /* ---------- pengaturan / ekspor / impor / reset ---------- */
+  function openSettings() {
+    var close;
+    var snd = h('input', { type: 'checkbox', id: 'set-sound' });
+    snd.checked = !!save.settings.sound;
+    snd.addEventListener('change', function () { save.settings.sound = snd.checked; persist(); syncMusic(); sfx('click'); });
+    var mot = h('input', { type: 'checkbox', id: 'set-motion' });
+    mot.checked = !!save.settings.reduceMotion;
+    mot.addEventListener('change', function () { save.settings.reduceMotion = mot.checked; applySettings(); persist(); });
+
+    var relax = h('input', { type: 'checkbox', id: 'set-relax' });
+    relax.checked = !!save.settings.relaxTimer;
+    relax.addEventListener('change', function () { save.settings.relaxTimer = relax.checked; persist(); });
+
+    var file = h('input', { type: 'file', accept: 'application/json,.json', id: 'set-import', style: 'display:none' });
+    file.addEventListener('change', function () {
+      var f = file.files && file.files[0];
+      if (!f) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var res = Store.importSave(String(reader.result));
+        if (!res.ok) { toast('Impor gagal: ' + res.error, true); return; }
+        confirmModal('Impor progres', 'Impor akan MENIMPA seluruh progres di browser ini dengan isi file. Lanjutkan?', 'Ya, impor', function () {
+          save = res.data; persist(); applySettings(); close();
+          toast('Progres berhasil diimpor.');
+          go(save.activeProfile ? home() : 'profile');
+        });
+      };
+      reader.onerror = function () { toast('File tidak dapat dibaca.', true); };
+      reader.readAsText(f);
+    });
+
+    var body = [
+      h('div', { class: 'setting-row' }, h('label', { for: 'set-sound', text: 'Efek suara' }), snd),
+      h('div', { class: 'setting-row' }, h('label', { for: 'set-motion', text: 'Kurangi animasi' }), mot),
+      h('div', { class: 'setting-row' }, h('label', { for: 'set-relax', text: 'Mode santai (waktu mini-game 2×)' }), relax),
+      h('p', { class: 'note', text: 'Progres tersimpan di browser ini saja. Ekspor ke file JSON sebelum membersihkan data browser atau pindah komputer.' }),
+      h('div', { class: 'row', style: 'margin-top:12px' },
+        btn('Ekspor progres', 'btn-secondary', exportProgress),
+        btn('Impor progres', 'btn-secondary', function () { file.click(); }),
+        file),
+      profile() ? h('div', { class: 'row', style: 'margin-top:12px' }, btn('Ubah karakter', 'btn-secondary', function () { close(); go('creator', {}); })) : null,
+      h('div', { class: 'row', style: 'margin-top:12px' },
+        btn('Reset semua progres', 'btn-danger', function () {
+          confirmModal('Reset progres', 'Semua profil dan progres di browser ini akan dihapus permanen. Disarankan ekspor dulu. Yakin?', 'Ya, hapus semua', function () {
+            save = Store.resetGame(); applySettings(); close(); toast('Progres telah direset.'); go('splash');
+          });
+        })),
+      h('div', { class: 'row', style: 'margin-top:16px' }, btn('Tutup', 'btn-primary', function () { close(); }))
+    ];
+    close = openModal('Pengaturan', body);
+  }
+
+  function exportProgress() {
+    var blob = new Blob([Store.exportSave(save)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = h('a', { href: url, download: 'gitquest-progres.json' });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    toast('Progres diekspor ke gitquest-progres.json');
+  }
+
+  /* ---------- router ---------- */
+  function home() { return save.settings.viewMode === 'list' ? 'dashboard' : 'world'; }
+  function setView(mode) { save.settings.viewMode = mode; persist(); go(mode === 'list' ? 'dashboard' : 'world'); }
+
+  function go(scene, arg) {
+    var fn = { splash: sceneSplash, profile: sceneProfile, intro: sceneIntro, creator: sceneCreator, dashboard: sceneDashboard, world: sceneWorld,
+      material: sceneMaterial, challenge: sceneChallenge, result: sceneResult }[scene];
+    applyPlayerLook();
+    fn(arg);
+    var mid = scene === 'material' ? MISSIONS[arg].id : ((scene === 'challenge' || scene === 'result') && run ? run.mission.id : null);
+    setTrack(mid || { splash: 'title', profile: 'title', creator: 'title', intro: 'title', world: 'world', dashboard: 'world' }[scene]);
+  }
+
+  /* ---------- Adegan 1: Splash (bergaya Minecraft) ---------- */
+  var SPLASH_TEXTS = ['Commit sekarang!', 'Tanpa database!', 'Satu perubahan, satu commit!', 'git init petualangan!', 'Jangan push rahasia!', '100% JavaScript!', 'Sudah di-stage?', 'Awas Glitch!', 'Ketik lebih cepat!', 'Belajar sambil bermain!', 'Cek git status!', 'Banyak monster bug!'];
+  function mcBtn(label, onclick, extra) {
+    return h('button', Object.assign({ type: 'button', class: 'mc-btn', onclick: function (e) { sfx('click'); onclick(e); }, text: label }, extra || {}));
+  }
+  function openHowTo() {
+    var close;
+    close = openModal('Cara Main', [
+      h('ul', { class: 'howto' }, [
+        'Jelajahi dunia dengan panah/WASD atau klik peta. Enter/Spasi untuk berinteraksi, F untuk melambai.',
+        'Masuk portal bernomor untuk memulai stage. Selesaikan, lalu kembali ke peta untuk membuka stage berikutnya.',
+        'Tiap stage punya game berbeda: kuis, sortir konveyor, terminal, mengetik cepat, simulator commit, dan sweep keamanan.',
+        'Jawaban benar menyerang monster; jawaban salah membuatmu terkena serangan, tetapi XP tidak berkurang.',
+        'Petunjuk (Bugbyte) mengurangi poin ronde, bukan XP. Mode santai di Pengaturan menggandakan waktu.'
+      ].map(function (t) { return h('li', { text: t }); })),
+      h('div', { class: 'row', style: 'margin-top:12px' }, btn('Tutup', 'btn-primary', function () { close(); }))
+    ]);
+  }
+  function sceneSplash() {
+    var pano = h('canvas', { class: 'mc-pano', 'aria-hidden': 'true' });
+    var splashText = h('span', { class: 'mc-splashtext', 'aria-hidden': 'true', text: SPLASH_TEXTS[Math.floor(Math.random() * SPLASH_TEXTS.length)] });
+    var sndBtn, motBtn;
+    function upd() {
+      sndBtn.textContent = 'Suara: ' + (save.settings.sound ? 'Hidup' : 'Mati');
+      motBtn.textContent = 'Animasi: ' + (save.settings.reduceMotion ? 'Kurang' : 'Penuh');
+      applySettings();
+    }
+    sndBtn = mcBtn('', function () { save.settings.sound = !save.settings.sound; persist(); upd(); syncMusic(); });
+    motBtn = mcBtn('', function () { save.settings.reduceMotion = !save.settings.reduceMotion; persist(); upd(); });
+    mount(h('div', { class: 'scene mc-splash' }, pano, h('div', { class: 'mc-vignette' }),
+      h('div', { class: 'mc-center' },
+        h('div', { class: 'mc-logo' },
+          h('h1', { class: 'sr-only', text: 'GIT QUEST — The Repository Chronicles' }),
+          h('img', { class: 'mc-logo-img', src: 'assets/images/icons/logo-block.svg', alt: '' }), splashText),
+        h('p', { class: 'mc-sub', text: 'The Repository Chronicles' }),
+        h('nav', { class: 'mc-menu', 'aria-label': 'Menu utama' },
+          mcBtn('Mulai Petualangan', function () { go('profile'); }, { id: 'start-btn', class: 'mc-btn mc-main' }),
+          h('div', { class: 'mc-row' }, mcBtn('Cara Main', openHowTo), mcBtn('Pengaturan', openSettings)),
+          h('div', { class: 'mc-row' }, sndBtn, motBtn)),
+        h('p', { class: 'mc-hint', text: save.settings.sound ? 'Klik di mana saja untuk memulai musik.' : '' })),
+      h('div', { class: 'mc-foot' }, h('span', { text: 'GIT QUEST • Tanpa database' }), h('span', { text: 'Untuk siswa SMK RPL' }))));
+    upd();
+    var pn = window.GQFX.panorama(pano, { reduce: function () { return !!save.settings.reduceMotion; } });
+    cleanups.push(pn.destroy);
+    document.getElementById('start-btn').focus();
+  }
+
+  /* ---------- Adegan 2: Profil Lokal ---------- */
+  function thumbCanvas(p, scale) {
+    var cv = window.GQChars.canvas(function () { return charOf(p); }, scale, function () { return Score.levelInfo(p.xp).tier; }, { animate: false });
+    return h('span', { class: 'char-slot' }, cv.el);
+  }
+  function sceneProfile() {
+    var ids = Object.keys(save.profiles);
+    var input = h('input', { type: 'text', id: 'pname', maxlength: '20', autocomplete: 'off', placeholder: 'mis. Siswa RPL', 'aria-describedby': 'perr' });
+    var err = h('p', { class: 'error-msg', id: 'perr', role: 'alert' });
+
+    function create(e) {
+      e.preventDefault();
+      var name = input.value.replace(/\s+/g, ' ').trim();
+      if (!name) { err.textContent = 'Nama tampilan tidak boleh kosong.'; input.focus(); return; }
+      if (name.length > 20) { err.textContent = 'Nama maksimal 20 karakter.'; input.focus(); return; }
+      var id = 'p' + Date.now().toString(36);
+      save.profiles[id] = { displayName: name, xp: 0, completedMissions: [], xpChallenges: [], bestScores: {}, introSeen: false, char: window.GQChars.defaults('rafi') };
+      save.activeProfile = id; persist();
+      go('creator', { isNew: true });
+    }
+    function choose(id) { save.activeProfile = id; persist(); go(save.profiles[id].introSeen ? home() : 'intro'); }
+
+    var list = ids.length ? h('ul', { class: 'profile-list', 'aria-label': 'Profil tersimpan' },
+      ids.map(function (id) {
+        var p = save.profiles[id], lv = Score.levelInfo(p.xp);
+        return h('li', null, h('button', { type: 'button', class: 'btn btn-secondary profile-item', onclick: function () { choose(id); } },
+          h('span', { class: 'pf-left' }, thumbCanvas(p, 2), h('span', null, h('b', { text: p.displayName }), h('small', { class: 'muted', text: ' ' + lv.title }))),
+          h('span', { class: 'muted', text: 'Lv ' + lv.level + ' • ' + p.xp + ' XP' })));
+      })) : null;
+
+    mount(h('div', { class: 'center-screen pixel-bg' },
+      h('form', { class: 'card panel-term', onsubmit: create, novalidate: true },
+        h('h1', { text: 'Profil Pemain' }),
+        h('div', { class: 'field' }, h('label', { for: 'pname', text: 'Nama tampilan' }), input),
+        err,
+        h('div', { class: 'row' },
+          h('button', { type: 'submit', class: 'btn btn-primary', text: 'Buat Profil' }),
+          btn('Kembali', 'btn-secondary', function () { go('splash'); })),
+        ids.length ? h('h2', { style: 'margin-top:16px;font-size:1rem', text: 'Atau lanjutkan profil:' }) : null,
+        list,
+        h('p', { class: 'note', text: 'Setelah membuat profil, kamu akan memilih dan mengkustomisasi karaktermu. Progres disimpan di browser ini saja; jangan masukkan password atau data pribadi.' }))), 'office');
+    ambient('stars');
+    input.focus();
+  }
+
+  /* ---------- Pembuat karakter: 10 karakter anime + kustomisasi warna + pratinjau efek level ---------- */
+  var COLOR_ROWS = [['hair', 'Rambut / hijab'], ['outfit', 'Baju'], ['accent', 'Aksen'], ['skin', 'Kulit'], ['eyes', 'Mata']];
+  function sceneCreator(arg) {
+    var GC = window.GQChars, p = profile();
+    if (!p) { go('profile'); return; }
+    var isNew = !!(arg && arg.isNew), draft = charOf(p), previewTier = Math.max(0, Score.levelInfo(p.xp).tier);
+    var calm = function () { return !!save.settings.reduceMotion; };
+    var prev = GC.canvas(function () { return draft; }, 6, function () { return previewTier; }, { calm: calm });
+    var nameEl = h('h2', { class: 'cr-name' }), roleEl = h('p', { class: 'muted cr-role' }), fxEl = h('p', { class: 'cr-fx', 'aria-live': 'polite' });
+    var charBtns = [], swatchBtns = {}, tierBtns = [], thumbs = {};
+
+    GC.LIST.forEach(function (c) {
+      var th = GC.canvas(function () { return draft.id === c.id ? draft : GC.defaults(c.id); }, 3, null, { animate: false });
+      thumbs[c.id] = th;
+      charBtns.push(h('button', { type: 'button', class: 'cr-char', role: 'radio', 'data-id': c.id, 'aria-checked': 'false', 'aria-label': c.name + ', ' + c.role, onclick: function () { choose(c.id); } },
+        h('span', { class: 'char-slot' }, th.el), h('span', { class: 'cr-cn', text: c.name })));
+    });
+    var rows = COLOR_ROWS.map(function (row) {
+      var key = row[0], pal = GC.PALETTE[key], btns = [];
+      var picker = h('input', { type: 'color', class: 'cr-picker', 'aria-label': 'Warna kustom: ' + row[1], value: draft[key], oninput: function (e) { draft[key] = e.target.value; refresh(); } });
+      var sw = pal.map(function (col) {
+        var b = h('button', { type: 'button', class: 'cr-sw', 'data-key': key, 'data-color': col, 'aria-label': row[1] + ' ' + col, style: 'background:' + col, onclick: function () { draft[key] = col; sfx('click'); refresh(); } });
+        btns.push(b); return b;
+      });
+      swatchBtns[key] = { btns: btns, picker: picker };
+      return h('div', { class: 'cr-row' }, h('span', { class: 'cr-lbl', text: row[1] }), h('div', { class: 'cr-sws' }, sw, picker));
+    });
+    for (var t = 0; t < 7; t++) (function (tier) {
+      tierBtns.push(h('button', { type: 'button', class: 'cr-tier', 'aria-pressed': 'false', 'aria-label': 'Pratinjau efek level ' + (tier + 1), text: 'Lv' + (tier + 1), onclick: function () { previewTier = tier; sfx('click'); refresh(); } }));
+    })(t);
+
+    function refresh() {
+      var d = GC.def(draft.id);
+      nameEl.textContent = d.name; roleEl.textContent = d.role + ' • ' + Score.levelInfo(previewTier * Score.CONFIG.xpPerLevel).title;
+      fxEl.textContent = previewTier > 0 ? 'Efek level ini: ' + GC.TIER_FX[previewTier] + (previewTier > 1 ? ' (+ efek sebelumnya)' : '') : 'Belum ada efek. Naik level untuk membuka aura dan lainnya!';
+      charBtns.forEach(function (b) { var on = b.getAttribute('data-id') === draft.id; b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); });
+      Object.keys(swatchBtns).forEach(function (k) {
+        swatchBtns[k].btns.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-color').toLowerCase() === draft[k].toLowerCase()); });
+        swatchBtns[k].picker.value = draft[k];
+      });
+      tierBtns.forEach(function (b, i) { b.classList.toggle('on', i === previewTier); b.setAttribute('aria-pressed', i === previewTier ? 'true' : 'false'); });
+      prev.render(); Object.keys(thumbs).forEach(function (k) { thumbs[k].render(); });
+    }
+    function choose(id) { draft = GC.defaults(id); sfx('jump'); var el = prev.el.parentNode; el.classList.remove('jump'); void el.offsetWidth; el.classList.add('jump'); refresh(); }
+    function randomize() {
+      var pick = function (a) { return a[Math.floor(Math.random() * a.length)]; };
+      var d = GC.defaults(pick(GC.LIST).id);
+      ['hair', 'outfit', 'accent', 'skin', 'eyes'].forEach(function (k) { d[k] = pick(GC.PALETTE[k]); });
+      draft = d; sfx('unlock'); refresh();
+    }
+    function saveChar() {
+      p.char = { id: draft.id, hair: draft.hair, outfit: draft.outfit, accent: draft.accent, skin: draft.skin, eyes: draft.eyes };
+      persist(); applyPlayerLook(); toast('Karakter disimpan: ' + GC.def(draft.id).name);
+      go(isNew ? 'intro' : home());
+    }
+    var f = 0, walker = setInterval(function () { f = (f + 1) % 4; prev.draw(['walk1', 'idle', 'walk2', 'idle'][f], 1); }, 220);
+    cleanups.push(function () { clearInterval(walker); prev.destroy(); Object.keys(thumbs).forEach(function (k) { thumbs[k].destroy(); }); });
+
+    mount(h('div', { class: 'center-screen pixel-bg' },
+      h('div', { class: 'card creator' },
+        h('h1', { text: isNew ? 'Buat Karakter' : 'Ubah Karakter' }),
+        h('div', { class: 'cr-grid' },
+          h('div', { class: 'cr-stage' },
+            h('button', { type: 'button', class: 'cr-prev', 'aria-label': 'Karaktermu. Klik untuk melompat.', onclick: function () { sfx('jump'); var el = prev.el.parentNode; el.classList.remove('jump'); void el.offsetWidth; el.classList.add('jump'); } },
+              h('span', { class: 'char-slot big' }, prev.el)),
+            nameEl, roleEl,
+            h('p', { class: 'muted cr-cap', text: 'Pratinjau efek naik level:' }),
+            h('div', { class: 'cr-tiers', role: 'group', 'aria-label': 'Pratinjau level' }, tierBtns), fxEl),
+          h('div', { class: 'cr-side' },
+            h('h2', { text: 'Pilih karakter' }), h('div', { class: 'cr-chars', role: 'radiogroup', 'aria-label': 'Pilih karakter' }, charBtns),
+            h('h2', { text: 'Warna' }), h('div', { class: 'cr-colors' }, rows))),
+        h('div', { class: 'row cr-actions' },
+          h('button', { type: 'button', class: 'btn btn-primary', id: 'save-char', text: isNew ? 'Simpan & Mulai' : 'Simpan Karakter', onclick: saveChar }),
+          btn('Acak', 'btn-secondary', randomize),
+          isNew ? null : btn('Kembali', 'btn-secondary', function () { go(home()); })))), 'office');
+    ambient('stars');
+    refresh();
+    document.getElementById('save-char').focus();
+  }
+
+  /* ---------- Adegan 3: Intro Cerita ---------- */
+  function sceneIntro() {
+    var GW = window.GQWorld, name = profile().displayName;
+    var lines = [
+      { who: 'Nara', key: 'nara', text: 'Selamat datang di CodeForge! Proyek kita sedang berantakan: perubahan tidak tercatat dan riwayatnya kacau.' },
+      { who: 'Nara', key: 'nara', text: 'Kita akan merapikannya dengan Git. Kamu akan menjelajahi dunia, memasuki portal, dan menyelesaikan tantangan.' },
+      { who: 'Bugbyte', key: 'bugbyte', text: 'Bip! Aku Bugbyte, robot pendampingmu. Aku siap memberi petunjuk, tapi petunjuk mengurangi poin ronde!' },
+      { who: 'Glitch', key: 'glitch', text: 'Hehehe... Proyek ini milikku sekarang! Tidak ada yang bisa merapikannya... bug bug bug!' },
+      { who: 'Nara', key: 'nara', text: 'Jangan takut pada Glitch. Siap, ' + name + '? Ayo masuk ke peta!' }
+    ];
+    var chars = { player: GW.charCanvas('player', 5), nara: GW.charCanvas('nara', 5), bugbyte: GW.charCanvas('bugbyte', 8), glitch: GW.charCanvas('glitch', 8) };
+    var wraps = {};
+    var stage = h('div', { class: 'intro-stage', 'aria-hidden': 'true' }, ['player', 'nara', 'bugbyte', 'glitch'].map(function (k) {
+      wraps[k] = h('button', { type: 'button', tabindex: '-1', class: 'ic ic-' + k, onclick: function () { sfx('jump'); wraps[k].classList.remove('jump'); void wraps[k].offsetWidth; wraps[k].classList.add('jump'); } }, chars[k].el);
+      return wraps[k];
+    }));
+    var speaker = h('div', { class: 'speaker' }), speech = h('div', { class: 'speech', 'aria-live': 'polite' });
+    var i = 0, typer = null, next;
+    function show() {
+      var l = lines[i]; speaker.textContent = l.who;
+      Object.keys(wraps).forEach(function (k) { wraps[k].classList.toggle('talk', k === l.key); });
+      wraps.glitch.classList.toggle('show', i >= 3); wraps.glitch.classList.toggle('glitching', l.key === 'glitch');
+      if (typer) typer.skip();
+      typer = window.GQFX.typewriter(speech, l.text, 48);
+      next.textContent = i === lines.length - 1 ? 'Ke Peta Misi' : 'Lanjutkan';
+    }
+    function advance() {
+      if (typer && !typer.isDone()) { typer.skip(); return; }
+      if (i < lines.length - 1) { i++; show(); return; }
+      profile().introSeen = true; persist(); go(home());
+    }
+    next = btn('Lanjutkan', 'btn-primary', advance, { id: 'intro-next' });
+    var tick = 0, idleT = setInterval(function () {
+      tick++;
+      Object.keys(chars).forEach(function (k) {
+        var talking = wraps[k].classList.contains('talk');
+        chars[k].draw(talking ? (tick % 2 ? 'walk1' : 'walk2') : (tick % 4 < 2 ? 'idle' : 'walk2'), 1);
+      });
+    }, 260);
+    cleanups.push(function () { clearInterval(idleT); if (typer) typer.skip(); });
+    mount(h('div', { class: 'center-screen pixel-bg' },
+      h('div', { class: 'card dialog' }, stage, speaker, speech, h('div', { class: 'row' }, next))), 'office');
+    ambient('stars');
+    show();
+    document.getElementById('intro-next').focus();
+  }
+
+  /* ---------- Adegan 4: Dashboard / Peta Misi ---------- */
+  function missionStatus(i) {
+    var p = profile(), m = MISSIONS[i];
+    if (!m.ready) return 'soon';
+    if (p.completedMissions.indexOf(m.id) !== -1) return 'completed';
+    if (i === 0) return 'available';
+    var prev = MISSIONS[i - 1];
+    return (prev.ready && p.completedMissions.indexOf(prev.id) !== -1) ? 'available' : 'locked';
+  }
+  var STATUS_LABEL = { locked: 'Terkunci', available: '▶ Tersedia', completed: 'Selesai', soon: 'Segera hadir' };
+  var STATUS_ICON = { locked: 'lock', completed: 'check', soon: 'lock' };
+
+  function sceneDashboard() {
+    var p = profile();
+    if (!p) { go('profile'); return; }
+    var lv = Score.levelInfo(p.xp);
+    var ready = MISSIONS.filter(function (m) { return m.ready; });
+    var doneReady = ready.filter(function (m) { return p.completedMissions.indexOf(m.id) !== -1; }).length;
+    var ach = Score.achievements(p, MISSIONS);
+    var gs = Score.gameStatus(p, MISSIONS);
+
+    var cards = MISSIONS.map(function (m, i) {
+      var st = missionStatus(i);
+      var best = p.bestScores[m.id];
+      var action = null;
+      if (st === 'available' || st === 'completed') {
+        action = btn(st === 'completed' ? 'Ulangi Misi' : 'Mulai Misi', st === 'completed' ? 'btn-secondary' : 'btn-primary', function () { cinematic(i, function () { go('material', i); }); });
+      }
+      return h('article', { class: 'card mission-card ' + (st === 'soon' ? 'locked' : st), 'aria-label': 'Misi ' + m.no + ': ' + m.title },
+        h('span', { class: 'mission-no', text: m.final ? 'FINAL' : 'LEVEL ' + m.no }),
+        h('h3', { text: m.title }),
+        h('p', { class: 'muted', text: m.summary }),
+        h('span', { class: 'badge ' + st }, STATUS_ICON[st] ? icon(STATUS_ICON[st]) : null, STATUS_LABEL[st]),
+        h('span', { class: 'muted mc-game', text: 'Game: ' + m.game }),
+        best !== undefined ? h('span', { class: 'muted', text: 'Nilai terbaik: ' + best }) : null,
+        m.ready ? h('span', { class: 'reward', text: 'Hadiah: +10 XP/tantangan, +25 XP bonus' }) : null,
+        action);
+    });
+
+    mount(h('div', { class: 'pixel-bg scene' }, h('div', { class: 'page' },
+      hudBar(p, [btn('Mode Dunia', 'btn-primary', function () { setView('world'); }), btn('Pengaturan', 'btn-secondary', openSettings), btn('Ganti Profil', 'btn-secondary', function () { go('profile'); })]),
+      h('div', { class: 'layout-2' },
+        h('section', { 'aria-label': 'Peta misi' }, h('h2', { text: 'Peta Misi' }), h('div', { class: 'map' }, cards)),
+        h('aside', { class: 'side' },
+          h('div', { class: 'card' },
+            h('h2', { text: 'Progres' }),
+            h('div', { class: 'bar-label' }, h('span', { text: 'Misi tersedia selesai' }), h('span', { text: doneReady + ' / ' + ready.length })),
+            h('div', { class: 'bar green', role: 'progressbar', 'aria-label': 'Progres misi', 'aria-valuemin': '0', 'aria-valuemax': String(ready.length), 'aria-valuenow': String(doneReady) },
+              h('i', { style: 'width:' + (doneReady / ready.length * 100) + '%' })),
+            h('p', { class: 'muted', style: 'margin-top:10px', text: 'Nilai minimal ' + Score.CONFIG.passScore + ' untuk membuka misi berikutnya.' })),
+          h('div', { class: 'card' },
+            h('h2', { text: 'Kondisi Kemenangan' }),
+            h('p', { class: 'muted', text: 'Selesaikan semua misi wajib dan Final Challenge (' + gs.done + ' / ' + gs.total + '). Gelar Repository Guardian diberikan bila nilai akhir minimal 90.' }),
+            h('p', null, h('b', { text: 'Nilai akhir: ' + gs.finalScore + ' — ' + (gs.won ? gs.rank : 'belum tamat') }))),
+          h('div', { class: 'card' },
+            h('h2', { text: 'Pencapaian' }),
+            h('ul', { class: 'ach-list' }, ach.map(function (a) {
+              return h('li', { class: 'ach ' + (a.on ? 'on' : 'off') },
+                h('span', { class: 'ico', 'aria-hidden': 'true' }, icon(a.on ? 'achievement' : 'lock')),
+                h('span', { text: a.label + (a.on ? ' (diraih)' : ' (belum)') }));
+            }))),
+          h('div', { class: 'card' },
+            h('p', { class: 'mentor' }, h('span', { class: 'sprite bugbyte', 'aria-hidden': 'true', text: 'B' }),
+              h('span', { text: 'Bugbyte: Mulai dari Level 1, ya! Progresmu otomatis tersimpan di browser ini.' }))))))), 'splash');
+  }
+
+
+  /* ---------- HUD pemain (dipakai dunia & daftar misi) ---------- */
+  function hudBar(p, buttons) {
+    var lv = Score.levelInfo(p.xp);
+    return h('header', { class: 'topbar' },
+      h('div', { class: 'player' },
+        h('div', { class: 'avatar char-av', 'aria-hidden': 'true' }, h('span', { class: 'char-slot' }, window.GQChars.canvas(function () { return charOf(p); }, 2, function () { return Score.levelInfo(p.xp).tier; }, { calm: function () { return !!save.settings.reduceMotion; } }).el)),
+        h('div', null, h('h1', { text: p.displayName }), h('span', { class: 'muted', text: lv.title + ' • Level ' + lv.level }))),
+      h('div', { class: 'xp-wrap' },
+        h('div', { class: 'bar-label' }, h('span', null, icon('xp', 'xp-ico'), 'XP'), h('span', { text: lv.into + ' / ' + lv.per + ' (total ' + p.xp + ')' })),
+        h('div', { class: 'bar', role: 'progressbar', 'aria-label': 'XP menuju level berikutnya', 'aria-valuemin': '0', 'aria-valuemax': String(lv.per), 'aria-valuenow': String(lv.into) },
+          h('i', { style: 'width:' + (lv.into / lv.per * 100) + '%' }))),
+      h('div', { class: 'row' }, buttons));
+  }
+
+  /* ---------- Dunia (overworld) ---------- */
+  var NPC_INFO = {
+    nara: { name: 'Nara', cls: 'nara', lines: function () {
+      var p = profile(), idx = firstOpenMission();
+      if (p.completedMissions.length === 0) return ['Selamat datang di dunia CodeForge! Portal bercahaya biru bernomor 1 di sisi kiri bawah adalah misi pertamamu.', 'Masuk ke portal, pelajari materinya, lalu kalahkan monster Glitch dengan jawaban yang tepat.'];
+      if (idx >= 0) return ['Kerja bagus! Misi berikutnya: Level ' + MISSIONS[idx].no + ' — ' + MISSIONS[idx].title + '. Portalnya sudah menyala.'];
+      return ['Semua misi yang tersedia sudah kamu tuntaskan. Ulangi misi untuk meraih 100 poin, dan tunggu level berikutnya!'];
+    } },
+    bugbyte: { name: 'Bugbyte', cls: 'bugbyte', lines: function () { return ['Bip! Gerak: panah atau WASD. Interaksi: Enter atau Spasi.', 'Saat bertarung, jawaban benar menyerang musuh. Bingung? Pakai Petunjuk dan aku akan memindai soalnya. Poin berkurang, XP tidak.']; } },
+    dev1: { name: 'Dev Senior', cls: 'player', lines: function () { return ['Dulu aku menyalin folder proyek jadi "final_v2_beneran_fix". Berantakan! Sejak pakai Git, semua versi tercatat rapi di riwayat.']; } },
+    dev2: { name: 'Dev Magang', cls: 'nara', lines: function () { return ['Tips: bayangkan Staging Area seperti keranjang belanja. git add memasukkan barang ke keranjang, git commit membayarnya ke riwayat.']; } },
+    glitch: { name: 'Glitch', cls: 'glitch', lines: function () {
+      var p = profile();
+      return p.completedMissions.length >= MISSIONS.filter(function (m) { return m.ready; }).length
+        ? ['Grr... kamu sudah menamatkan semua yang ada. Tunggu Bos Terakhir di portal merah itu, kalau berani!']
+        : ['Hehehe! Aku Glitch! Proyekmu akan kubuat berantakan... kecuali kamu menyelesaikan semua level.'];
+    } }
+  };
+  function firstOpenMission() {
+    for (var i = 0; i < MISSIONS.length; i++) if (missionStatus(i) === 'available') return i;
+    return -1;
+  }
+
+  function talk(id) {
+    var info = NPC_INFO[id]; if (!info) return;
+    var lines = info.lines(), i = 0, close;
+    var text = h('div', { class: 'speech', text: lines[0] });
+    var next = btn(lines.length > 1 ? 'Lanjut' : 'Tutup', 'btn-primary', function () {
+      if (i < lines.length - 1) { i++; text.textContent = lines[i]; if (i === lines.length - 1) next.textContent = 'Tutup'; }
+      else close();
+    });
+    close = openModal(info.name, [h('div', { class: 'speaker', text: info.name }), text, h('div', { class: 'row' }, next)]);
+  }
+
+  function portalDialog(i) {
+    var m = MISSIONS[i], st = missionStatus(i), close;
+    var body = [h('p', { class: 'muted', text: m.summary }), h('p', null, h('b', { text: 'Tipe game: ' }), m.game || '-', h('br'), h('b', { text: 'Musuh: ' }), m.enemy ? m.enemy.name : '???'), h('span', { class: 'badge ' + st }, STATUS_ICON[st] ? icon(STATUS_ICON[st]) : null, STATUS_LABEL[st])];
+    var acts = [];
+    if (st === 'available' || st === 'completed') {
+      acts.push(btn(st === 'completed' ? 'Masuk lagi' : 'Masuk', 'btn-primary', function () { close(); lastPortal = i; cinematic(i, function () { go('material', i); }); }));
+    } else if (st === 'locked') {
+      body.push(h('p', { class: 'note', text: 'Terkunci. Selesaikan Level ' + MISSIONS[i - 1].no + ' dengan nilai minimal ' + Score.CONFIG.passScore + ' untuk membukanya.' }));
+    } else {
+      body.push(h('p', { class: 'note', text: 'Portal ini belum aktif. Level ini segera hadir.' }));
+    }
+    acts.push(btn('Batal', 'btn-secondary', function () { close(); }));
+    body.push(h('div', { class: 'row', style: 'margin-top:12px' }, acts));
+    close = openModal((m.final ? 'Final Boss' : 'Level ' + m.no) + ': ' + m.title, body);
+  }
+
+  function sceneWorld() {
+    var p = profile();
+    if (!p) { go('profile'); return; }
+    var hint = h('p', { class: 'world-hint', 'aria-live': 'polite' }, 'Jelajahi dunia dengan panah atau WASD.');
+    var canvas = h('canvas', { class: 'world-canvas', tabindex: '0', role: 'application', 'aria-label': 'Dunia GIT QUEST. Gerak dengan tombol panah atau WASD. Tekan Enter untuk berinteraksi. Alternatif: gunakan Mode Daftar.' });
+
+    var gs = Score.gameStatus(p, MISSIONS), open = firstOpenMission();
+    var quest = h('div', { class: 'card' },
+      h('h2', { text: 'Misi Aktif' }),
+      open >= 0
+        ? [h('p', null, h('b', { text: 'Level ' + MISSIONS[open].no + ': ' + MISSIONS[open].title })), h('p', { class: 'muted', text: 'Game: ' + MISSIONS[open].game + '. Menuju portal bernomor ' + MISSIONS[open].no + ' yang bercahaya.' })]
+        : h('p', { class: 'muted', text: 'Semua misi yang tersedia sudah selesai. Level berikutnya segera hadir.' }),
+      h('div', { class: 'bar-label' }, h('span', { text: 'Misi selesai' }), h('span', { text: gs.done + ' / ' + gs.total })),
+      h('div', { class: 'bar green', role: 'progressbar', 'aria-label': 'Misi selesai', 'aria-valuemin': '0', 'aria-valuemax': String(gs.total), 'aria-valuenow': String(gs.done) }, h('i', { style: 'width:' + (gs.done / gs.total * 100) + '%' })));
+
+    function padBtn(label, aria) { return h('button', { type: 'button', class: 'btn btn-secondary pad', 'aria-label': aria, text: label }); }
+    var up = padBtn('▲', 'Naik'), dn = padBtn('▼', 'Turun'), lf = padBtn('◀', 'Kiri'), rt = padBtn('▶', 'Kanan');
+    var act = h('button', { type: 'button', class: 'btn btn-primary pad pad-act', 'aria-label': 'Interaksi', text: 'Aksi' });
+    var dpad = h('div', { class: 'dpad' }, h('span'), up, h('span'), lf, act, rt, h('span'), dn, h('span'));
+
+    var wrap = h('div', { class: 'pixel-bg scene' }, h('div', { class: 'page' },
+      hudBar(p, [btn('Mode Daftar', 'btn-secondary', function () { setView('list'); }), btn('Pengaturan', 'btn-secondary', openSettings), btn('Ganti Profil', 'btn-secondary', function () { go('profile'); })]),
+      h('div', { class: 'world-layout' },
+        h('section', { 'aria-label': 'Dunia' }, canvas, hint),
+        h('aside', { class: 'side' }, quest,
+          h('div', { class: 'card' }, h('h2', { text: 'Kontrol' }), dpad,
+            h('div', { class: 'row', style: 'justify-content:center;margin-top:8px' }, btn('Lambai (F)', 'btn-secondary', function () { if (world) world.emote(); })),
+            h('p', { class: 'muted', style: 'margin-top:10px;font-size:.85rem', text: 'Klik peta untuk berjalan otomatis. Keyboard: panah/WASD, Enter/Spasi untuk berinteraksi, F untuk melambai.' }))))));
+    mount(wrap, 'splash');
+
+    var unlockNow = pendingUnlock; pendingUnlock = -1;
+    var spawn = null;
+    if (lastPortal >= 0) { var pp = window.GQWorld.PORTALS[lastPortal]; spawn = { x: pp.x, y: pp.y + 1 > 11 ? pp.y - 1 : pp.y + 1 }; if (pp.y <= 4) spawn = { x: pp.x, y: pp.y + 1 }; }
+    world = window.GQWorld.start({
+      canvas: canvas, spawn: spawn, finalIndex: MISSIONS.length - 1,
+      unlock: unlockNow >= 0 ? unlockNow : null,
+      alert: function (id) { return id === 'nara' && (unlockNow >= 0 || profile().completedMissions.length === 0); },
+      getStatus: missionStatus,
+      reduceMotion: function () { return !!save.settings.reduceMotion; },
+      onPortal: function (i) { portalDialog(i); },
+      onNpc: function (id) { talk(id); },
+      onHover: function (info) {
+        if (!info) hint.textContent = 'Jelajahi dunia dengan panah atau WASD.';
+        else if (info.type === 'portal') hint.textContent = 'Portal ' + MISSIONS[info.index].title + ' — tekan Enter atau Aksi untuk membuka.';
+        else hint.textContent = NPC_INFO[info.id].name + ' ada di dekatmu — tekan Enter atau Aksi untuk bicara.';
+      }
+    });
+    if (unlockNow >= 0) setTimeout(function () { toast('Portal Level ' + MISSIONS[unlockNow].no + ' terbuka! Masuk lewat peta.'); sfx('unlock'); }, 700);
+    world.attachPad(up, 0, -1); world.attachPad(dn, 0, 1); world.attachPad(lf, -1, 0); world.attachPad(rt, 1, 0);
+    act.addEventListener('click', function () { world.interact(); });
+    canvas.focus({ preventScroll: true });
+  }
+
+  /* ---------- Arena pertarungan (lapisan RPG; aturan skor tidak berubah) ---------- */
+  var HIT_DAMAGE = 12;   // HP pemain berkurang saat jawaban salah (efek permainan saja, XP tidak berkurang)
+  var PRAISE = ['Bagus sekali!', 'Tepat!', 'Kamu hebat!', 'Mantap, lanjutkan!'];
+  var CHEER = ['Jangan menyerah!', 'Tenang, coba lagi.', 'Periksa materinya lagi ya.', 'Kamu pasti bisa!'];
+  var PLAYER_CHEER = ['Siap!', 'Semangat!', 'Ayo!', 'Aku pasti menang!'];
+  var ENEMY_TAUNT = ['Hehehe!', 'Coba kalahkan aku!', 'Kamu belum cukup kuat!', 'Hahaha!'];
+  function pickOne(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function buildArena(m) {
+    var en = m.enemy, GW = window.GQWorld;
+    var pc = GW.charCanvas('player', 5), nc = GW.charCanvas('nara', 2);
+    var pName = h('span', { text: profile().displayName }), eName = h('span', { text: en.name });
+    var pHpTxt = h('span'), eHpTxt = h('span');
+    var pBar = h('i'), eBar = h('i');
+    var pBub = h('div', { class: 'bubble b-player', hidden: true, 'aria-hidden': 'true' }), eBub = h('div', { class: 'bubble b-enemy', hidden: true, 'aria-hidden': 'true' });
+    var playerEl = h('div', { class: 'fighter f-player', role: 'button', tabindex: '0', 'aria-label': 'Karaktermu. Klik untuk bersorak.' }, pc.el);
+    var enemyEl = h('div', { class: 'fighter f-enemy', role: 'button', tabindex: '0', 'aria-label': 'Musuh: ' + en.name + '. Klik untuk memancingnya.' },
+      h('img', { class: 'enemy-img e-' + en.img + (m.final ? ' boss' : ''), src: 'assets/images/characters/enemy-' + en.img + '.svg', alt: '' }));
+    var fxLayer = h('div', { class: 'fx', 'aria-hidden': 'true' });
+    var logEl = h('p', { class: 'battle-log', 'aria-live': 'polite' });
+    function plate(cls, name, txt, bar, color, label) {
+      return h('div', { class: 'nameplate ' + cls }, h('div', { class: 'np-top' }, name, txt),
+        h('div', { class: 'bar ' + color, role: 'progressbar', 'aria-label': label, 'aria-valuemin': '0', 'aria-valuemax': '100' }, bar));
+    }
+    var pPlate = plate('np-player', pName, pHpTxt, pBar, 'green', 'HP pemain');
+    var ePlate = plate('np-enemy', eName, eHpTxt, eBar, 'red', 'HP musuh');
+    var node = h('div', { class: 'arena-wrap' }, h('section', { class: 'arena', 'aria-label': 'Arena pertarungan melawan ' + en.name }, pPlate, ePlate, playerEl, enemyEl, pBub, eBub, fxLayer), logEl);
+
+    var nText = h('p', { class: 'muted mentor-line', 'aria-live': 'polite' });
+    var mentor = h('div', { class: 'card mentor-card' }, h('div', { class: 'mentor' }, h('div', { class: 'mentor-char' }, nc.el), h('div', null, h('b', { text: 'Nara' }), nText)));
+
+    function setBars(pHp, eHp) {
+      pBar.style.width = pHp + '%'; eBar.style.width = eHp + '%';
+      pHpTxt.textContent = ' HP ' + pHp; eHpTxt.textContent = ' HP ' + eHp;
+      pPlate.querySelector('.bar').setAttribute('aria-valuenow', String(pHp)); ePlate.querySelector('.bar').setAttribute('aria-valuenow', String(eHp));
+    }
+    function anim(el, cls, ms) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); setTimeout(function () { el.classList.remove(cls); }, ms); }
+    function pop(side, text, cls) {
+      var d = h('span', { class: 'dmg on-' + side + ' ' + (cls || ''), text: text });
+      fxLayer.appendChild(d); setTimeout(function () { if (d.parentNode) d.remove(); }, 1000);
+    }
+    function speak(el, text, ms) { el.textContent = text; el.hidden = false; clearTimeout(el._h); el._h = setTimeout(function () { el.hidden = true; }, ms || 1700); }
+    var typer = null, narTimer = null;
+    function naraSay(text) {
+      if (typer) typer.skip();
+      typer = window.GQFX.typewriter(nText, text, 60);
+      clearInterval(narTimer); var n = 0;
+      narTimer = setInterval(function () { n++; nc.draw(n % 2 ? 'walk1' : 'walk2', 1); if (n > 9 || (typer && typer.isDone())) { clearInterval(narTimer); nc.draw('idle', 1); } }, 130);
+      anim(mentor.querySelector('.mentor-char'), 'jump', 450);
+    }
+    function onPlayerClick() { sfx('jump'); anim(playerEl, 'jump', 520); speak(pBub, pickOne(PLAYER_CHEER)); }
+    function onEnemyClick() { anim(enemyEl, 'wobble', 520); speak(eBub, pickOne(ENEMY_TAUNT)); }
+    function keyAct(fn) { return function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }; }
+    playerEl.addEventListener('click', onPlayerClick); playerEl.addEventListener('keydown', keyAct(onPlayerClick));
+    enemyEl.addEventListener('click', onEnemyClick); enemyEl.addEventListener('keydown', keyAct(onEnemyClick));
+    var k = 0, idleT = setInterval(function () { k++; pc.draw(k % 2 ? 'walk2' : 'idle', 1); }, 520);
+
+    setBars(run.playerHp, run.enemyHp);
+    logEl.textContent = run.idx === 0 ? en.intro : 'Ronde berikutnya! Jawab dengan benar untuk menyerang ' + en.name + '.';
+
+    return {
+      node: node, mentor: mentor,
+      log: function (t) { logEl.textContent = t; },
+      say: naraSay,
+      playerStrike: function (crit) {
+        var target = Math.max(0, Math.round(100 * (1 - run.results.length / m.challenges.length)));
+        var dmg = run.enemyHp - target; run.enemyHp = target;
+        anim(playerEl, 'lunge-r', 350); pc.draw('walk1', 1); setTimeout(function () { pc.draw('idle', 1); }, 350);
+        speak(pBub, crit ? 'KRITIS!' : pickOne(['Rasakan!', 'Ambil ini!', 'Yaaa!']), 1300);
+        naraSay(crit ? 'Sempurna! Itu serangan kritis!' : pickOne(PRAISE));
+        setTimeout(function () {
+          anim(enemyEl, 'hit', 350); pop('enemy', (crit ? 'KRITIS! ' : '') + '-' + dmg, crit ? 'crit' : '');
+          speak(eBub, target === 0 ? 'Aku... kalah...' : pickOne(['Aduh!', 'Argh!', 'Auw!']), 1300);
+          setBars(run.playerHp, run.enemyHp);
+          if (target === 0) { enemyEl.classList.add('defeated'); logEl.textContent = en.name + ' dikalahkan!'; anim(playerEl, 'jump', 520); }
+          else logEl.textContent = (crit ? 'Serangan kritis' : 'Serangan tepat') + '! ' + en.name + ' kehilangan ' + dmg + ' HP.';
+        }, 180);
+      },
+      enemyStrike: function () {
+        var hp = run.playerHp - HIT_DAMAGE, fainted = hp <= 0;
+        run.playerHp = fainted ? 60 : hp;   // pemain tidak pernah kalah: Nara menyembuhkan (XP & skor tidak terpengaruh)
+        anim(enemyEl, 'lunge-l', 350); speak(eBub, en.attack + '!', 1400);
+        naraSay(fainted ? 'Aku menyembuhkanmu. Tetap semangat, XP-mu aman!' : pickOne(CHEER));
+        setTimeout(function () {
+          anim(playerEl, 'hit', 350); pop('player', '-' + HIT_DAMAGE, 'dmg-p'); speak(pBub, 'Aduh!', 1100);
+          if (fainted) {
+            setBars(0, run.enemyHp);
+            logEl.textContent = 'Kamu terjatuh! Nara menyembuhkanmu. XP dan skor tidak berkurang.';
+            setTimeout(function () { setBars(run.playerHp, run.enemyHp); }, 900);
+          } else {
+            setBars(run.playerHp, run.enemyHp);
+            logEl.textContent = en.name + ' menyerang dengan ' + en.attack + '! -' + HIT_DAMAGE + ' HP. Periksa lagi jawabanmu.';
+          }
+        }, 180);
+      },
+      dispose: function () { clearInterval(idleT); clearInterval(narTimer); if (typer) typer.skip(); }
+    };
+  }
+
+  /* ---------- Adegan 5-7: Materi ---------- */
+  function sceneMaterial(i) {
+    var m = MISSIONS[i];
+    var secs = m.material.map(function (s) {
+      return h('section', { class: 'sec' },
+        h('h3', { text: s.h }),
+        s.img ? h('img', { class: 'material-img', src: s.img, alt: s.alt || '' }) : null,
+        s.p.map(function (t) { return h('p', { text: t }); }),
+        s.code ? h('pre', { class: 'code-block', tabindex: '0', 'aria-label': 'Contoh perintah' }, h('code', { text: s.code.join('\n'), style: 'background:none;padding:0;color:inherit' })) : null);
+    });
+    mount(h('div', { class: 'pixel-bg scene stage' }, h('div', { class: 'page page-reading' },
+      h('div', { class: 'mat-layout' },
+        h('aside', { class: 'card mat-left' },
+          h('div', { class: 'crumbs' }, btn('← Kembali ke Peta', 'btn-secondary', function () { go(home()); })),
+          h('span', { class: 'mission-no', text: 'LEVEL ' + m.no }),
+          h('h1', { text: m.title }),
+          h('div', { class: 'card-2 mentor', style: 'margin:10px 0 12px' },
+            h('span', { class: 'char-slot sm' }, window.GQWorld.charCanvas('nara', 2).el),
+            h('span', null, h('b', { text: 'Nara: ' }), m.nara)),
+          h('h2', { style: 'font-size:1rem', text: 'Tujuan belajar' }),
+          h('ul', { class: 'goals' }, m.goals.map(function (g) { return h('li', { text: g }); })),
+          h('p', { class: 'muted mat-enemy' }, h('b', { text: 'Tipe game: ' }), m.game, h('br'), h('b', { text: 'Musuh: ' }), m.enemy.name),
+          h('div', { class: 'row mat-start' }, btn('Mulai Tantangan', 'btn-primary', function () { fightIntro(m, function () { startMission(i); }); }, { id: 'go-ch' }))),
+        h('section', { class: 'card mat-right', 'aria-label': 'Materi ' + m.title, tabindex: '0' }, secs)))), m.id);
+    ambient(m.id);
+    document.getElementById('go-ch').focus({ preventScroll: true });
+  }
+
+  function startMission(i) {
+    run = { mi: i, mission: MISSIONS[i], idx: 0, results: [], attempts: 0, hints: 0, solved: false, playerHp: 100, enemyHp: 100 };
+    go('challenge');
+  }
+
+  /* ---------- Adegan 5-7: Tantangan ---------- */
+  function miniEnv(ctx) {
+    return { h: h, icon: icon, sfx: sfx, ctx: ctx, relaxed: function () { return !!save.settings.relaxTimer; } };
+  }
+
+  var RENDER = {
+    mcq: function (ch, ctx) {
+      var name = 'mcq-' + run.idx, rows = [], chosen = -1;
+      var fs = h('fieldset', null, h('legend', { class: 'q-prompt', text: ch.prompt }),
+        ch.options.map(function (o, i) {
+          var inp = h('input', { type: 'radio', name: name, value: String(i), onchange: function () { chosen = i; } });
+          var row = h('label', { class: 'opt' }, inp, h('span', { text: o }));
+          rows.push({ row: row, inp: inp });
+          return row;
+        }));
+      return {
+        node: fs,
+        check: function () {
+          if (chosen < 0) return null;
+          rows.forEach(function (r, i) { r.row.classList.remove('ok', 'bad'); if (i === chosen) r.row.classList.add(i === ch.answer ? 'ok' : 'bad'); });
+          return chosen === ch.answer;
+        },
+        lock: function () { rows.forEach(function (r) { r.inp.disabled = true; }); }
+      };
+    },
+
+    match: function (ch, ctx) {
+      var rows = ch.items.map(function (it, i) {
+        var sel = h('select', { id: 'm' + i, 'aria-label': it.text },
+          h('option', { value: '', text: 'Pilih…' }),
+          ch.choices.map(function (c) { return h('option', { value: c, text: c }); }));
+        var tag = h('span', { class: 'status-tag' });
+        var row = h('div', { class: 'match-row' }, h('label', { for: 'm' + i, class: it.icon ? 'lbl' : '' }, it.icon ? icon(it.icon, 'big') : null, h('span', null, h('span', { text: it.text }), tag)), sel);
+        return { it: it, sel: sel, row: row, tag: tag };
+      });
+      // Drag-and-drop (FR-07): seret kartu ke area. Menu pilihan tetap menjadi alternatif klik/keyboard.
+      var zones = null;
+      if (ch.dnd) {
+        var dragIdx = -1;
+        rows.forEach(function (r, i) {
+          r.row.setAttribute('draggable', 'true');
+          r.row.classList.add('draggable');
+          r.row.addEventListener('dragstart', function (e) {
+            dragIdx = i;
+            if (e.dataTransfer) { e.dataTransfer.setData('text/plain', String(i)); e.dataTransfer.effectAllowed = 'move'; }
+          });
+        });
+        zones = h('div', { class: 'drop-zones', 'aria-label': 'Area tujuan (seret kartu ke sini)' },
+          ch.choices.map(function (c) {
+            var z = h('div', { class: 'drop-zone', text: c });
+            z.addEventListener('dragover', function (e) { e.preventDefault(); z.classList.add('over'); });
+            z.addEventListener('dragleave', function () { z.classList.remove('over'); });
+            z.addEventListener('drop', function (e) {
+              e.preventDefault(); z.classList.remove('over');
+              if (dragIdx < 0 || rows[dragIdx].sel.disabled) return;
+              rows[dragIdx].sel.value = c;
+              rows[dragIdx].row.classList.remove('ok', 'bad');
+              rows[dragIdx].tag.className = 'status-tag';
+              rows[dragIdx].tag.textContent = '→ ' + c;
+              dragIdx = -1;
+            });
+            return z;
+          }));
+      }
+      rows.forEach(function (r) {
+        r.sel.addEventListener('change', function () {
+          r.row.classList.remove('ok', 'bad'); r.tag.className = 'status-tag'; r.tag.textContent = '';
+        });
+      });
+      return {
+        node: h('div', null, h('p', { class: 'q-prompt', text: ch.prompt }),
+          ch.dnd ? h('p', { class: 'muted', text: 'Seret kartu ke area yang tepat, atau gunakan menu pilihan di sebelah kartu.' }) : null,
+          zones, rows.map(function (r) { return r.row; })),
+        check: function () {
+          if (rows.some(function (r) { return !r.sel.value; })) return null;
+          var all = true;
+          rows.forEach(function (r) {
+            var ok = r.sel.value === r.it.answer;
+            if (!ok) all = false;
+            r.row.classList.remove('ok', 'bad'); r.row.classList.add(ok ? 'ok' : 'bad');
+            r.tag.className = 'status-tag ' + (ok ? 'ok' : 'bad');
+            r.tag.textContent = ok ? '✔ Benar' : '✖ Belum tepat';
+          });
+          return all;
+        },
+        lock: function () { rows.forEach(function (r) { r.sel.disabled = true; }); }
+      };
+    },
+
+    order: function (ch, ctx) {
+      var order = ch.items.map(function (_, i) { return i; });
+      do { order.sort(function () { return Math.random() - 0.5; }); }
+      while (order.every(function (v, i) { return v === i; }));
+      var list = h('div'), locked = false;
+      var status = {};
+
+      function draw() {
+        list.textContent = '';
+        order.forEach(function (orig, pos) {
+          var up = btn('▲', 'btn-secondary', function () { move(pos, -1); }, { 'aria-label': 'Naikkan: ' + ch.items[orig] });
+          var dn = btn('▼', 'btn-secondary', function () { move(pos, 1); }, { 'aria-label': 'Turunkan: ' + ch.items[orig] });
+          if (locked || pos === 0) up.disabled = true;
+          if (locked || pos === order.length - 1) dn.disabled = true;
+          var cls = status[orig] === undefined ? '' : (status[orig] ? ' ok' : ' bad');
+          list.appendChild(h('div', { class: 'order-row' + cls },
+            h('span', { class: 'no', text: String(pos + 1) }),
+            h('span', { class: 'txt mono', text: ch.items[orig] }),
+            status[orig] === undefined ? null : h('span', { class: 'status-tag ' + (status[orig] ? 'ok' : 'bad'), text: status[orig] ? '✔' : '✖' }),
+            up, dn));
+        });
+      }
+      function move(pos, d) {
+        var t = order[pos]; order[pos] = order[pos + d]; order[pos + d] = t;
+        status = {}; draw();
+        var btns = list.querySelectorAll('.order-row')[pos + d];
+        var target = btns && btns.querySelectorAll('button')[d < 0 ? 0 : 1];
+        if (target && !target.disabled) target.focus(); else if (btns) btns.querySelector('button:not(:disabled)') && btns.querySelector('button:not(:disabled)').focus();
+      }
+      draw();
+      return {
+        node: h('div', null, h('p', { class: 'q-prompt', text: ch.prompt }), list),
+        check: function () {
+          var all = true;
+          status = {};
+          order.forEach(function (orig, pos) { status[orig] = (orig === pos); if (orig !== pos) all = false; });
+          draw();
+          return all;
+        },
+        lock: function () { locked = true; draw(); }
+      };
+    },
+
+    sorter: function (ch, ctx) { return window.GQMini.create('sorter', ch, miniEnv(ctx)); },
+    typing: function (ch, ctx) { return window.GQMini.create('typing', ch, miniEnv(ctx)); },
+    reposim: function (ch, ctx) { return window.GQMini.create('reposim', ch, miniEnv(ctx)); },
+    sweep: function (ch, ctx) { return window.GQMini.create('sweep', ch, miniEnv(ctx)); },
+    memory: function (ch, ctx) { return window.GQMini.create('memory', ch, miniEnv(ctx)); },
+    terminal: function (ch, ctx) { return window.GQMini.create('terminal', ch, miniEnv(ctx)); }
+  };
+
+  function sceneChallenge() {
+    var m = run.mission, ch = m.challenges[run.idx];
+    run.attempts = 0; run.hints = 0; run.solved = false;
+    var arena = buildArena(m);
+
+    var fb = h('div', { class: 'feedback', role: 'status', 'aria-live': 'polite' });
+    function showFb(kind, title, text, ico) {
+      fb.className = 'feedback ' + kind;
+      fb.textContent = '';
+      fb.appendChild(h('strong', null, ico ? icon(ico) : null, ico ? ' ' + title : title));
+      fb.appendChild(document.createTextNode(text));
+    }
+
+    var part, checkBtn, hintBtn, nextBtn;
+    var ctx = {
+      hit: function () { arena.enemyStrike(); },
+      submit: function (correct, quiet, extra) {
+        if (run.solved) return;
+        run.attempts++;
+        if (correct) {
+          run.solved = true;
+          var pts = (extra && typeof extra.accuracy === 'number')
+            ? Score.gamePoints(run.attempts, run.hints, extra.accuracy)
+            : Score.challengePoints(run.attempts, run.hints);
+          run.results.push({ id: ch.id, title: ch.title, points: pts, attempts: run.attempts, hints: run.hints });
+          sfx('correct');
+          arena.playerStrike(run.attempts === 1 && run.hints === 0);
+          showFb('ok', '✔ Benar! +' + pts + ' poin', ' ' + ch.explain);
+          part.lock();
+          if (checkBtn) checkBtn.disabled = true;
+          hintBtn.disabled = true;
+          nextBtn.hidden = false; nextBtn.focus();
+        } else {
+          arena.enemyStrike();
+          if (!quiet) {
+          sfx('wrong');
+          showFb('bad', '✖ Belum tepat', ' Periksa kembali jawabanmu. Tinjau materi: ' +
+            m.material.map(function (s) { return '“' + s.h + '”'; }).join(', ') +
+            '. Petunjuk tersedia (poin berkurang, XP tidak).');
+          }
+        }
+      }
+    };
+    part = RENDER[ch.type](ch, ctx);
+
+    checkBtn = part.noCheck ? null : btn('Periksa', 'btn-primary', function () {
+      var r = part.check();
+      if (r === null) { showFb('hint', 'Lengkapi dulu', ' Pilih jawaban untuk semua bagian sebelum memeriksa.'); return; }
+      ctx.submit(r);
+    });
+    hintBtn = btn('Petunjuk', 'btn-secondary', function () {
+      var text = part.hintText ? part.hintText() : ch.hints[Math.min(run.hints, ch.hints.length - 1)];
+      run.hints++;
+      sfx('hint');
+      arena.log('Bugbyte memindai soalnya… (item Petunjuk dipakai: poin berkurang, XP tidak)');
+      arena.say('Bugbyte membantumu. Ingat, petunjuk mengurangi poin ronde.');
+      showFb('hint', 'Petunjuk ' + Math.min(run.hints, 2), ' ' + text, 'hint');
+    });
+    var isLast = run.idx === m.challenges.length - 1;
+    nextBtn = btn(isLast ? 'Lihat Hasil' : 'Tantangan Berikutnya', 'btn-primary', function () {
+      if (isLast) finishMission(); else { run.idx++; sceneChallenge(); }
+    }, { hidden: true });
+
+    var pct = run.idx / m.challenges.length * 100;
+    mount(h('div', { class: 'pixel-bg scene stage' }, h('div', { class: 'page' },
+      h('header', { class: 'ch-head' },
+        h('h1', { text: 'Level ' + m.no + ': ' + m.title + ' — melawan ' + m.enemy.name }),
+        h('div', { class: 'ch-progress' },
+          h('div', { class: 'bar-label' }, h('span', { text: 'Ronde ' + (run.idx + 1) + ' dari ' + m.challenges.length + ' — ' + ch.title }), h('span', { text: Math.round(pct) + '%' })),
+          h('div', { class: 'bar blue', role: 'progressbar', 'aria-label': 'Progres misi', 'aria-valuemin': '0', 'aria-valuemax': String(m.challenges.length), 'aria-valuenow': String(run.idx) },
+            h('i', { style: 'width:' + pct + '%' }))),
+        btn('Kabur ke Peta', 'btn-secondary', function () {
+          if (run.results.length) confirmModal('Kabur dari pertarungan?', 'Progres tantangan misi ini belum disimpan jika kamu kabur sekarang.', 'Kabur', function () { go(home()); });
+          else go(home());
+        })),
+      h('div', { class: 'battle-layout' },
+        h('div', { class: 'battle-left' }, arena.node,
+          arena.mentor),
+        h('section', { class: 'card battle-panel', 'aria-label': 'Area tantangan' },
+          h('div', { class: 'q-scroll' }, part.node),
+          h('div', { class: 'row actions' }, checkBtn, hintBtn, nextBtn),
+          fb)))), m.id);
+    disposePart = part.dispose || null;
+    cleanups.push(arena.dispose);
+    ambient(m.id);
+    arena.say(ch.type === 'mcq' || ch.type === 'match' || ch.type === 'order'
+      ? 'Baca soal dengan teliti. Jawaban salah tidak mengurangi XP-mu.'
+      : 'Tekan Mulai! saat siap. Kesalahan membuat musuh menyerang, tetapi XP-mu aman.');
+    if (part.focus) part.focus();
+  }
+
+  function finishMission() {
+    var p = profile(), lvBefore = Score.levelInfo(p.xp).level;
+    var res = Score.applyMissionResult(p, run.mission, run.results);
+    persist();
+    var lvAfter = Score.levelInfo(p.xp);
+    run.levelUp = lvAfter.level > lvBefore ? { from: lvBefore, to: lvAfter.level, tier: lvAfter.tier, title: lvAfter.title } : null;
+    applyPlayerLook();
+    if (res.firstPass && MISSIONS[run.mi + 1] && MISSIONS[run.mi + 1].ready) pendingUnlock = run.mi + 1;
+    run.outcome = res;
+    go('result');
+  }
+
+  /* ---------- Adegan 12: Hasil ---------- */
+  function sceneResult() {
+    var m = run.mission, o = run.outcome;
+    var firstTry = run.results.filter(function (r) { return r.attempts === 1 && r.hints === 0; }).length;
+    var acc = Math.round(firstTry / run.results.length * 100);
+    var mastered = run.results.filter(function (r) { return r.points === 100; });
+    var review = run.results.filter(function (r) { return r.points < 100; });
+    var next = MISSIONS[run.mi + 1];
+    var canNext = !!(o.passed && next && next.ready);
+
+    mount(h('div', { class: 'pixel-bg scene' }, h('div', { class: 'page' },
+      h('div', { class: 'card result' },
+        h('span', { class: 'mission-no', text: 'HASIL LEVEL ' + m.no }),
+        h('h1', { text: m.title }),
+        h('div', { class: 'pass-tag ' + (o.passed ? 'ok' : 'no'), text: o.passed ? '✔ Misi lulus' + (o.firstPass ? ' — misi berikutnya terbuka!' : '') : '✖ Belum lulus (minimal ' + Score.CONFIG.passScore + ')' }),
+        h('div', { class: 'rank', text: o.rank }),
+        h('div', { class: 'stats' },
+          h('div', { class: 'stat' }, h('b', { text: String(o.score) }), 'Skor'),
+          h('div', { class: 'stat' }, h('b', { text: '+' + o.xpGained }), 'XP didapat'),
+          h('div', { class: 'stat' }, h('b', { text: acc + '%' }), 'Akurasi')),
+        h('div', { class: 'lists' },
+          h('div', { class: 'card-2' }, h('b', { text: 'Sudah dikuasai' }),
+            mastered.length ? h('ul', null, mastered.map(function (r) { return h('li', { text: r.title }); })) : h('p', { class: 'muted', text: 'Belum ada — coba lagi untuk 100 poin.' })),
+          h('div', { class: 'card-2' }, h('b', { text: 'Perlu diulang' }),
+            review.length ? h('ul', null, review.map(function (r) { return h('li', { text: r.title + ' (' + r.points + ' poin)' }); })) : h('p', { class: 'muted', text: 'Semua tantangan tuntas sempurna!' }))),
+        !o.passed ? h('p', { class: 'muted', text: 'Saran: baca ulang materi, lalu ulangi misi.' }) : null,
+        canNext ? h('p', { class: 'note', style: 'margin:6px 0', text: 'Kembali ke peta untuk membuka portal Level ' + next.no + ': ' + next.title + '.' }) : null,
+        h('p', { class: 'muted', text: o.passed ? m.enemy.name + ' dikalahkan! Hadiah: ' + o.xpGained + ' XP.' : m.enemy.name + ' kabur dengan sisa tenaga. Pelajari lagi lalu hadapi kembali!' }),
+        h('p', { class: 'muted', text: 'Rank adalah penghargaan motivasi, bukan nilai resmi sekolah. XP hanya diberikan sekali per tantangan.' }),
+        h('div', { class: 'row', style: 'justify-content:center' },
+          btn('Ulangi Misi', 'btn-secondary', function () { startMission(run.mi); }),
+          btn('Lihat Materi', 'btn-secondary', function () { go('material', run.mi); }),
+          btn('Kembali ke Peta', 'btn-primary', function () { go(home()); }, { id: 'res-map' }),
+          btn('Ekspor Progres', 'btn-secondary', exportProgress))))), m.id);
+    ambient(m.id);
+    if (run.levelUp) { var lu = run.levelUp; run.levelUp = null; window.__lastLevelUp = lu; levelUpOverlay(lu); }
+    if (o.passed) sfx(Score.gameStatus(profile(), MISSIONS).won ? 'victory' : (o.firstPass ? 'unlock' : 'complete'));
+    document.getElementById('res-map').focus();
+  }
+
+  /** Latar partikel bertema di belakang adegan (stage punya tema sendiri). */
+  function ambient(theme) {
+    var host = $app.firstElementChild; if (!host || !window.GQFX) return;
+    var c = h('canvas', { class: 'fx-canvas', 'aria-hidden': 'true' });
+    host.classList.add('fx-host'); host.insertBefore(c, host.firstChild);
+    var fx = window.GQFX.ambient(c, theme, { reduce: function () { return !!save.settings.reduceMotion; } });
+    cleanups.push(fx.destroy);
+  }
+
+  /** Sinematik dramatis saat memasuki stage: pusaran portal, kilat, judul, dan adegan VS. */
+  function cinematic(i, after) {
+    if (window.GQ_FAST) { after(); return; }
+    var m = MISSIONS[i], boss = !!m.final, reduce = !!save.settings.reduceMotion;
+    var root = document.getElementById('cine-root');
+    var pc = window.GQWorld.charCanvas('player', 5); pc.draw('walk1', 1);
+    var skip = h('button', { type: 'button', class: 'btn btn-secondary cine-skip', text: 'Lewati ▸' });
+    var ov = h('div', { class: 'cine t-' + m.id + (boss ? ' boss' : ''), role: 'dialog', 'aria-label': 'Memasuki ' + m.title },
+      h('div', { class: 'cine-vortex' }), h('div', { class: 'cine-flash' }), h('div', { class: 'cine-bar top' }), h('div', { class: 'cine-bar bottom' }),
+      boss ? h('div', { class: 'cine-warn', text: '⚠ PERINGATAN ⚠' }) : null,
+      h('div', { class: 'cine-title' }, h('span', { class: 'cine-no', text: boss ? 'FINAL BOSS' : 'LEVEL ' + m.no }), h('h2', { text: m.title }), h('p', { class: 'cine-game', text: m.game })),
+      h('div', { class: 'cine-vs' }, h('div', { class: 'cine-p' }, pc.el), h('span', { class: 'cine-vsx', text: 'VS' }),
+        h('div', { class: 'cine-e' }, h('img', { src: 'assets/images/characters/enemy-' + m.enemy.img + '.svg', alt: '' }), h('p', { class: 'cine-ename', text: m.enemy.name }))),
+      skip);
+    root.textContent = ''; root.appendChild(ov);
+    var done = false, timers = [];
+    function finish() {
+      if (done) return; done = true; timers.forEach(clearTimeout); document.removeEventListener('keydown', onK);
+      ov.classList.add('out'); setTimeout(function () { root.textContent = ''; after(); }, 260);
+    }
+    function onK(e) { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); finish(); } }
+    skip.addEventListener('click', function (e) { e.stopPropagation(); finish(); }); ov.addEventListener('click', finish); document.addEventListener('keydown', onK);
+    duckMusic(); sfx(boss ? 'boss' : 'portal');
+    if (!reduce) timers.push(setTimeout(function () { sfx('fight'); }, boss ? 2400 : 1750));
+    timers.push(setTimeout(finish, reduce ? 900 : (boss ? 4300 : 3300)));
+    skip.focus();
+  }
+
+  /** Perayaan naik level: karakter "berevolusi" dengan efek tingkat baru. */
+  function levelUpOverlay(lu) {
+    if (window.GQ_FAST) return;
+    var GC = window.GQChars, root = document.getElementById('cine-root'), reduce = !!save.settings.reduceMotion;
+    var spec = charOf(profile()), cv = window.GQWorld.charCanvas('player', 7); cv.draw('idle', 1);
+    var ok = h('button', { type: 'button', class: 'btn btn-primary', id: 'lvup-ok', text: 'Lanjut' });
+    var ov = h('div', { class: 'lvup', role: 'dialog', 'aria-label': 'Naik level' }, h('div', { class: 'lvup-rays' }),
+      h('div', { class: 'lvup-box' },
+        h('p', { class: 'lvup-title', text: 'LEVEL UP!' }),
+        h('div', { class: 'lvup-char' }, cv.el),
+        h('p', { class: 'lvup-lv', text: 'Level ' + lu.from + ' → ' + lu.to }),
+        h('p', { class: 'lvup-rank', text: lu.title }),
+        h('p', { class: 'lvup-fx', text: lu.tier > 0 ? 'Efek baru: ' + GC.TIER_FX[lu.tier] : '' }),
+        ok));
+    if (!reduce) for (var i = 0; i < 28; i++) {
+      var sp = h('i', { class: 'lvup-spark' });
+      sp.style.cssText = '--a:' + (i * (360 / 28)) + 'deg;--d:' + (140 + Math.random() * 200) + 'px;--c:' + ['#ffd34d', '#60a5fa', '#f9fafb', '#f472b6'][i % 4] + ';animation-delay:' + (Math.random() * .5 + .7) + 's';
+      ov.appendChild(sp);
+    }
+    GC.setPlayer(spec, Math.max(0, lu.tier - 1));          // tampil dulu dengan efek lama...
+    var evolve = setTimeout(function () { GC.setPlayer(spec, lu.tier); ov.classList.add('evolved'); }, reduce ? 200 : 1000);   // ...lalu berevolusi
+    root.textContent = ''; root.appendChild(ov); duckMusic(); sfx('levelup');
+    function close() { clearTimeout(evolve); document.removeEventListener('keydown', onK); GC.setPlayer(spec, lu.tier); cv.destroy(); root.textContent = ''; setTrack(wantTrack); }
+    function onK(e) { if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); close(); } }
+    ok.addEventListener('click', close); document.addEventListener('keydown', onK); ok.focus();
+  }
+
+  /** Transisi singkat "FIGHT!" saat tantangan dimulai. */
+  function fightIntro(m, after) {
+    if (window.GQ_FAST) { after(); return; }
+    var root = document.getElementById('cine-root');
+    var ov = h('div', { class: 'fight t-' + m.id, role: 'status', 'aria-live': 'assertive' }, h('b', { text: 'FIGHT!' }), h('p', { text: 'vs ' + m.enemy.name }));
+    root.textContent = ''; root.appendChild(ov); sfx('fight');
+    setTimeout(function () { root.textContent = ''; after(); }, save.settings.reduceMotion ? 450 : 1000);
+  }
+
+  /* ---------- boot ---------- */
+  applySettings();
+  if (!Store.isAvailable()) toast('localStorage tidak tersedia: progres tidak akan tersimpan setelah halaman ditutup.', true);
+  go('splash');
+  document.addEventListener('click', function once() { document.removeEventListener('click', once); if (save.settings.sound) syncMusic(); });
+  if (Store.loadIssue) toast(Store.loadIssue, true);
+})();
