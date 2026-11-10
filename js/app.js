@@ -594,7 +594,7 @@
       if (sct.code) body.appendChild(h('pre', { class: 'code-block', tabindex: '0', 'aria-label': 'Contoh perintah' }, h('code', { text: sct.code.join('\n'), style: 'background:none;padding:0;color:inherit' })));
       body.appendChild(h('div', { class: 'row', style: 'margin-top:10px' },
         btn('Sudah paham', 'btn-primary', function () {
-          var was = learnedAll(i); mark(k); sfx('hint');
+          var was = learnedAll(i); mark(k); sfx('read');
           if (!was && learnedAll(i)) { toast('Materi lengkap! Portal Level ' + m.no + ' terbuka.'); sfx('unlock'); }
           list();
         }),
@@ -651,7 +651,7 @@
   }
   function talk(id) {
     var info = NPC_INFO[id]; if (!info) return;
-    talked[id] = 1;
+    talked[id] = 1; sfx('talk');
     var lines = info.lines().slice(), i = 0, close, evil = info.kind === 'evil', canAsk = !evil && world && world.dests, km = evil ? -1 : keeperMission(id);
     if (km >= 0 && !learnedAll(km)) lines.push('Aku menyimpan ' + topicsOf(km).length + ' materi untuk zona ini. Baca semuanya dulu, baru portal Level ' + MISSIONS[km].no + ' terbuka dan kamu boleh melawan ' + (MISSIONS[km].enemy ? MISSIONS[km].enemy.name : 'musuh') + '.');
     var speaker = h('div', { class: 'speaker ' + (evil ? 'evil' : 'good'), text: info.name + (evil ? ' (jahat)' : ' (baik)') });

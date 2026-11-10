@@ -11,9 +11,11 @@ proyek open-source berlisensi SIL Open Font License (OFL).
 | `images/characters/` | `player`, `nara`, `bugbyte`, `glitch`, dan 7 monster `enemy-*` (.svg) | Sprite versi gambar; `bugbyte.svg` jadi favicon. Karakter pemain dan NPC digambar dari kode (`js/chars.js`) sehingga bisa diwarnai ulang. |
 | `images/backgrounds/` | `splash`, `codeforge-office`, `level-vcs`, `level-three-zones`, `level-setup`, `level-commands`, `level-commit`, `level-gitignore`, `level-final` (.svg) | Latar adegan: splash/dashboard, profil/intro (kantor), dan tiap level (`bg-<id>` di CSS) |
 | `images/icons/` | `logo`, `logo-block` (logo balok batu ala Minecraft di splash), `xp`, `achievement`, `lock`, `check`, `cross`, `hint`, `file`, `folder`, `terminal`, `status-untracked/modified/staged/committed` (.svg) | Logo splash, XP, pencapaian, status misi, petunjuk, terminal, kartu status berkas |
+| `images/icons/` | `book`, `keeper`, `marker` (.svg) | Ikon materi, Penyimpan Materi (ungu), dan penanda KAMU; dipakai di dokumentasi/pengembangan berikutnya (di dunia digambar dari kode) |
 | `images/icons/` | `diagram-three-zones`, `diagram-status`, `diagram-vcs` (.svg) | Diagram pada halaman materi |
 | `audio/` | `music-title`, `music-world`, `music-vcs`, `music-three-zones`, `music-setup`, `music-commands`, `music-commit`, `music-gitignore`, `music-final` (.wav) | Backsound berbeda untuk menu, peta, dan tiap stage (berpindah dengan crossfade) |
 | `audio/` | `sfx-click`, `sfx-correct`, `sfx-wrong`, `sfx-hint`, `sfx-unlock`, `sfx-complete`, `sfx-victory`, `sfx-portal`, `sfx-fight`, `sfx-boss`, `sfx-jump`, `sfx-levelup` (.wav) | Efek suara, termasuk dentuman masuk stage, FIGHT!, dan peringatan bos |
+| `audio/` | `sfx-talk` (membuka dialog NPC), `sfx-read` (materi ditandai paham) (.wav) | Efek untuk NPC dan Penyimpan Materi |
 | `fonts/` | `press-start-2p`, `inter` (400, 700), `jetbrains-mono` (.woff2) | Judul pixel, teks isi, terminal |
 
 File yang belum dipakai di tampilan (`file`, `folder`, `cross`, karakter `.svg`) disediakan untuk
