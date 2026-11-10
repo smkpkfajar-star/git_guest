@@ -117,7 +117,7 @@
   }
 
   function panorama(canvas, opts) {
-    var ctx = canvas.getContext('2d'), S = 4, bw = 0, bh = 0, len = 0, mt = [], hl = [], trees = [], clouds = [], stars = [], cast = null;
+    var ctx = canvas.getContext('2d'), S = 4, bw = 0, bh = 0, len = 0, mt = [], hl = [], trees = [], clouds = [], stars = [], cast = null, flies = [], leaves = [];
     var calm = function () { return !!(opts && opts.reduce && opts.reduce()); };
     var W3 = window.GQWorld;
     function build() {
@@ -128,6 +128,9 @@
       }
       for (i = 0; i < len; i += 8 + Math.floor(r() * 12)) trees.push({ x: i, h: 3 + Math.floor(r() * 3) });
       for (i = 0; i < 8; i++) clouds.push({ x: r() * len, y: Math.floor(bh * (.08 + r() * .24)), w: 8 + Math.floor(r() * 12), sp: .5 + r() * .7 });
+      flies = []; leaves = [];
+      for (i = 0; i < 26; i++) flies.push({ x: r() * bw, y: bh * (.55 + r() * .35), ph: r() * 6, sp: .4 + r() });
+      for (i = 0; i < 16; i++) leaves.push({ x: r() * bw, y: r() * bh, ph: r() * 6, sp: 2 + r() * 3, c: r() < .5 ? '#7bd44a' : '#e0a030' });
       for (i = 0; i < 70; i++) stars.push({ x: Math.floor(r() * bw), y: Math.floor(r() * bh * .5), ph: r() * 6 });
     }
     function setup() {
@@ -154,6 +157,17 @@
       ctx.fillStyle = P.cloud; ctx.globalAlpha = .9;
       clouds.forEach(function (c) { var cx = ((c.x + el * c.sp * 1.2) % (len)) - c.w; var sxp = (cx % len) * S; if (sxp > w + 40 * S) return; ctx.fillRect(sxp, c.y * S, c.w * S, 2 * S); ctx.fillRect(sxp + 2 * S, (c.y - 1) * S, (c.w - 5) * S, S); ctx.fillRect(sxp + S, (c.y + 2) * S, (c.w - 2) * S, S); });
       ctx.globalAlpha = 1;
+      if (!still) {
+        // bintang jatuh (malam)
+        if (sa > .35) { var ph = (el % 5) / .9; if (ph < 1) { var sx0 = w * (.2 + ((Math.floor(el / 5) * 37) % 50) / 100), sy0 = h * .06; for (var tl = 0; tl < 9; tl++) { var pp = Math.max(0, ph - tl * .03); ctx.globalAlpha = (1 - tl / 9) * (1 - ph) * 1.2; ctx.fillStyle = '#fff'; ctx.fillRect(sx0 + pp * w * .35, sy0 + pp * h * .3, S, S); } ctx.globalAlpha = 1; } }
+        // burung terbang (siang)
+        var da = smooth(.1, .45, e);
+        if (da > .05) for (var bi = 0; bi < 4; bi++) { var bx = ((el * (28 + bi * 6) + bi * w * .3) % (w + 80)) - 40, byy = h * (.18 + bi * .05) + Math.sin(el * 2 + bi) * S * 3, up = Math.floor(el * 5 + bi) % 2; ctx.globalAlpha = da * .85; ctx.fillStyle = '#1c2a3a'; ctx.fillRect(bx, byy + (up ? 0 : S), S * 2, S); ctx.fillRect(bx + S * 2, byy + S, S, S); ctx.fillRect(bx + S * 3, byy + (up ? 0 : S), S * 2, S); }
+        ctx.globalAlpha = 1;
+        // daun berguguran (siang)
+        if (da > .05) leaves.forEach(function (lf) { var lx = ((lf.x + el * lf.sp * .6 + Math.sin(el + lf.ph) * 3) % bw + bw) % bw, ly = (lf.y + el * lf.sp) % (bh - 8); ctx.globalAlpha = da * .9; ctx.fillStyle = lf.c; ctx.fillRect(lx * S, ly * S, S, S); }); 
+        ctx.globalAlpha = 1;
+      }
       var gy = bh - 7;
       // gunung jauh
       var offM = Math.floor(el * 1.4), offH = Math.floor(el * 4);
@@ -184,6 +198,18 @@
         W3.drawChar(ctx, 'bugbyte', w * .30, baseY - 9 * cm - bobf(1), cm, fr, 1);
         cast.forEach(function (spec, i) { GCc.draw(ctx, spec, w * (.42 + i * .1), baseY - 24 * cs - bobf(i + 2) + cs * 2, cs, fr, 1, tm, 0); });
       }
+      glow(t);
+    }
+    function glow(t) {   // kunang-kunang: malam & senja
+      if (calm()) return;
+      var el = (t - (t0 || t)) / 1000, e = Math.sin(((el / 70 + .08) % 1) * Math.PI * 2), na = Math.max(0, Math.min(1, .45 - e));
+      if (na < .05) return;
+      flies.forEach(function (f) {
+        var fx = ((f.x + Math.sin(el * f.sp + f.ph) * 6) % bw + bw) % bw, fy = f.y + Math.cos(el * f.sp * 1.3 + f.ph) * 4, a = na * (.35 + .65 * Math.max(0, Math.sin(el * 3 * f.sp + f.ph)));
+        ctx.globalAlpha = a * .3; ctx.fillStyle = '#d9ff66'; ctx.fillRect((fx - 1) * S, (fy - 1) * S, S * 3, S * 3);
+        ctx.globalAlpha = a; ctx.fillStyle = '#f4ffb0'; ctx.fillRect(fx * S, fy * S, S, S);
+      });
+      ctx.globalAlpha = 1;
     }
     setup();
     var stop = null; draw(0);

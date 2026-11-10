@@ -36,6 +36,7 @@ GIT QUEST versi ini **tidak menggunakan database dan tidak memerlukan backend PH
 - `development_plan.md` — tahapan, MVP, struktur proyek, dan pengujian.
 - `rpg_mode.md` — pembaruan konsep: dunia, portal, dan pertarungan monster.
 - `characters.md` — 10 karakter anime, kustomisasi, dan efek naik level.
+- `world_maps.md` — peta per stage, NPC baik/jahat, dan cara menambah peta.
 - `stage_games.md` — tipe game berbeda di tiap stage, aturan timer, dan poin mini-game.
 
 ## Cara menjalankan (setelah source code tersedia)

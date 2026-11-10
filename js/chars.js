@@ -120,7 +120,24 @@
   var NPCS = {
     npc_nara: { id: 'npc_nara', name: 'Nara', hair: 'long', outfit: 'uniform', lower: 'pants', acc: 'glasses', c: { hair: '#7c3aed', outfit: '#4c1d95', accent: '#fbbf24', skin: '#fde0c8', eyes: '#a855f7' } },
     npc_dev1: { id: 'npc_dev1', name: 'Dev Senior', hair: 'swept', outfit: 'jacket', lower: 'pants', acc: null, c: { hair: '#111827', outfit: '#EAB308', accent: '#f9fafb', skin: '#c68642', eyes: '#1e293b' } },
-    npc_dev2: { id: 'npc_dev2', name: 'Dev Magang', hair: 'bun', outfit: 'hoodie', lower: 'skirt', acc: 'bow', c: { hair: '#f5f5f5', outfit: '#22C55E', accent: '#f472b6', skin: '#f1c9a5', eyes: '#22c55e' } }
+    npc_dev2: { id: 'npc_dev2', name: 'Dev Magang', hair: 'bun', outfit: 'hoodie', lower: 'skirt', acc: 'bow', c: { hair: '#f5f5f5', outfit: '#22C55E', accent: '#f472b6', skin: '#f1c9a5', eyes: '#22c55e' } },
+    /* guru (baik) */
+    npc_prof: { id: 'npc_prof', name: 'Prof. Versi', hair: 'short', outfit: 'robe', lower: 'robe', acc: 'glasses', c: { hair: '#e5e7eb', outfit: '#1d4ed8', accent: '#fde047', skin: '#e0ac82', eyes: '#1e293b' } },
+    npc_sage: { id: 'npc_sage', name: 'Kak Sage', hair: 'bob', outfit: 'uniform', lower: 'skirt', acc: 'bow', c: { hair: '#0f766e', outfit: '#0e7490', accent: '#fde047', skin: '#f1c9a5', eyes: '#14b8a6' } },
+    npc_guard: { id: 'npc_guard', name: 'Penjaga', hair: 'short', outfit: 'jacket', lower: 'pants', acc: 'cap', c: { hair: '#111827', outfit: '#0ea5e9', accent: '#f9fafb', skin: '#c68642', eyes: '#1e293b' } },
+    npc_arch: { id: 'npc_arch', name: 'Pustakawan', hair: 'long', outfit: 'robe', lower: 'robe', acc: 'glasses', c: { hair: '#9ca3af', outfit: '#7c2d12', accent: '#fbbf24', skin: '#f1c9a5', eyes: '#7c3aed' } },
+    npc_vault: { id: 'npc_vault', name: 'Penjaga Brankas', hair: 'ponytail', outfit: 'gi', lower: 'pants', acc: 'headband', c: { hair: '#7c2d12', outfit: '#fbbf24', accent: '#7c2d12', skin: '#e0ac82', eyes: '#f59e0b' } },
+    npc_mentor: { id: 'npc_mentor', name: 'Master', hair: 'swept', outfit: 'robe', lower: 'robe', acc: null, c: { hair: '#f9fafb', outfit: '#7c3aed', accent: '#fbbf24', skin: '#e0ac82', eyes: '#22d3ee' } },
+    /* penjahat (evil): warna gelap, mata merah */
+    npc_copy: { id: 'npc_copy', name: 'Si Copy-Paste', hair: 'spiky', outfit: 'hoodie', lower: 'pants', acc: null, c: { hair: '#ef4444', outfit: '#7f1d1d', accent: '#f97316', skin: '#e0ac82', eyes: '#ef4444' } },
+    npc_leak: { id: 'npc_leak', name: 'Pencuri Rahasia', hair: 'swept', outfit: 'hoodie', lower: 'pants', acc: 'cap', c: { hair: '#0f172a', outfit: '#111827', accent: '#ef4444', skin: '#8d5524', eyes: '#ef4444' } },
+    npc_rogue: { id: 'npc_rogue', name: 'Rogue', hair: 'spiky', outfit: 'jacket', lower: 'pants', acc: 'headband', c: { hair: '#581c87', outfit: '#3b0764', accent: '#ef4444', skin: '#f1c9a5', eyes: '#ef4444' } },
+    npc_siswa1: { id: 'npc_siswa1', name: 'Siswa', hair: 'twin', outfit: 'uniform', lower: 'skirt', acc: 'bow', c: { hair: '#fb7185', outfit: '#1e3a8a', accent: '#fde047', skin: '#f1c9a5', eyes: '#ec4899' } },
+    npc_siswa2: { id: 'npc_siswa2', name: 'Siswi', hair: 'hijab', outfit: 'uniform', lower: 'skirt', acc: null, c: { hair: '#be185d', outfit: '#f4f4f8', accent: '#fbbf24', skin: '#f1c9a5', eyes: '#7c3aed' } },
+    npc_siswa3: { id: 'npc_siswa3', name: 'Siswa', hair: 'short', outfit: 'uniform', lower: 'pants', acc: null, c: { hair: '#111827', outfit: '#f4f4f8', accent: '#1e3a8a', skin: '#c68642', eyes: '#1e293b' } },
+    npc_pelari: { id: 'npc_pelari', name: 'Pelari', hair: 'ponytail', outfit: 'jacket', lower: 'pants', acc: 'headband', c: { hair: '#92400e', outfit: '#f97316', accent: '#fde047', skin: '#e0ac82', eyes: '#16a34a' } },
+    npc_ibu: { id: 'npc_ibu', name: 'Guru', hair: 'bun', outfit: 'jacket', lower: 'skirt', acc: 'glasses', c: { hair: '#6b7280', outfit: '#7c3aed', accent: '#f9fafb', skin: '#f1c9a5', eyes: '#7c3aed' } },
+    npc_boss: { id: 'npc_boss', name: 'Lord Merge Conflict', hair: 'long', outfit: 'robe', lower: 'robe', acc: 'starclip', c: { hair: '#7f1d1d', outfit: '#1f2937', accent: '#ef4444', skin: '#e9d5ff', eyes: '#ef4444' } }
   };
   var BY_ID = {}; CHARS.forEach(function (c) { BY_ID[c.id] = c; }); Object.keys(NPCS).forEach(function (k) { BY_ID[k] = NPCS[k]; });
 

@@ -65,9 +65,8 @@ body::after {
 }
 body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after { animation: none !important; transition: none !important; }
 body.reduce-motion::after { display: none; }
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-}
+/* Catatan: animasi dikontrol lewat tombol "Kurangi animasi" di game, bukan media query sistem operasi,
+   supaya animasi tetap tampil walau Windows memakai "Show animations: off". */
 
 .skip-link { position: absolute; left: -999px; top: 0; background: var(--blue); color: var(--text); padding: 8px 12px; z-index: 100; }
 .skip-link:focus { left: 8px; top: 8px; }
@@ -823,7 +822,9 @@ select:focus { border-color: var(--blue); }
 .mc-center { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px; max-height: 100%; }
 .mc-logo { position: relative; display: inline-block; }
 .mc-logo-img { display: block; width: min(86vw, 600px); height: auto; image-rendering: pixelated; filter: drop-shadow(0 6px 0 rgba(0,0,0,.35)); animation: logofloat 4s ease-in-out infinite; }
-@keyframes logofloat { 50% { transform: translateY(-6px); } }
+@keyframes logofloat { 50% { transform: translateY(-8px) rotate(-.6deg); } }
+.mc-logo::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.55) 50%, transparent 60%); background-size: 250% 100%; mix-blend-mode: overlay; animation: shine 3.6s linear infinite; }
+@keyframes shine { from { background-position: 150% 0; } to { background-position: -100% 0; } }
 .mc-splashtext {
   position: absolute; right: -4%; bottom: -6%; white-space: nowrap; transform: rotate(-18deg);
   font-family: var(--font-pixel); font-size: clamp(.6rem, 1.6vw, .95rem); color: #ffff55; text-shadow: 2px 2px 0 #3f3f00;
@@ -832,6 +833,14 @@ select:focus { border-color: var(--blue); }
 @keyframes splashpulse { from { transform: rotate(-18deg) scale(1); } to { transform: rotate(-18deg) scale(1.12); } }
 .mc-sub { font-family: var(--font-pixel); font-size: .68rem; color: #fff; text-shadow: 2px 2px 0 #3f3f3f; margin: 8px 0 10px; letter-spacing: 1px; text-align: center; }
 .mc-menu { display: grid; gap: 10px; width: min(86vw, 420px); }
+.mc-menu > * { animation: mcrise .6s cubic-bezier(.2,.9,.3,1.3) backwards; }
+.mc-menu > :nth-child(1) { animation-delay: .25s; } .mc-menu > :nth-child(2) { animation-delay: .4s; } .mc-menu > :nth-child(3) { animation-delay: .55s; }
+@keyframes mcrise { from { opacity: 0; transform: translateY(40px) scale(.92); } }
+.mc-sub { animation: mcrise .6s .1s backwards, subglow 2.4s ease-in-out .8s infinite alternate; }
+@keyframes subglow { from { text-shadow: 2px 2px 0 #3f3f3f, 0 0 0 rgba(255,255,160,0); } to { text-shadow: 2px 2px 0 #3f3f3f, 0 0 14px rgba(255,255,160,.9); } }
+.mc-main { animation: mcrise .6s .25s backwards, mcbeat 1.4s ease-in-out 1s infinite; }
+@keyframes mcbeat { 50% { transform: scale(1.035); } }
+.mc-btn:hover:not(:disabled) { transform: translateY(-2px); }
 .mc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mc-btn {
   font-family: var(--font-pixel); font-size: .7rem; line-height: 1.4; color: #e8e8e8; text-shadow: 2px 2px 0 #3f3f3f;
@@ -1040,6 +1049,12 @@ select:focus { border-color: var(--blue); }
   .cr-row { gap: 6px; } .cr-sw { width: 22px; height: 22px; }
   .intro-stage { height: clamp(140px, 24vh, 170px); }
 }
+
+/* ---------- NPC baik / jahat & lokasi peta ---------- */
+.speaker.good { color: #86efac; text-shadow: 0 0 10px rgba(34,197,94,.5); }
+.speaker.evil { color: #f87171; text-shadow: 0 0 10px rgba(239,68,68,.55); }
+.speech.evil { border-left-color: #EF4444; background: rgba(127,29,29,.22); }
+.loc { margin: 0; font-size: .9rem; line-height: 1.5; }
 
 /* ==========================================================
    Data sprite (dihasilkan dari grid piksel 8×N)

@@ -12,6 +12,7 @@
   var run = null; // sesi tantangan aktif
   var world = null; // instans dunia (overworld) yang sedang tampil
   var lastPortal = -1;
+  var lastArea = 'plaza';     // peta terakhir yang dikunjungi (dipakai saat kembali ke dunia)
   var pendingUnlock = -1;      // portal yang baru terbuka (dianimasikan saat kembali ke dunia)
   var disposePart = null;      // pembersih timer/listener mini-game aktif
   var cleanups = [];           // pembersih animasi/timer adegan (dijalankan saat berpindah adegan)
@@ -81,7 +82,7 @@
     try {
       var a = SFX[name] || (SFX[name] = new Audio('assets/audio/sfx-' + name + '.wav'));
       a.currentTime = 0; a.volume = 0.6;
-      var p = a.play(); if (p && p.catch) p.catch(function () {});
+      var p = a.play(); if (p && p.catch) p.catch(function () { });
     } catch (e) { /* suara opsional */ }
   }
   function trackEl(n) {
@@ -95,7 +96,7 @@
       if (k >= 1) { clearInterval(el._f); if (pauseAtEnd) el.pause(); }
     }, 50);
   }
-  function playEl(el) { try { var p = el.play(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* abaikan */ } }
+  function playEl(el) { try { var p = el.play(); if (p && p.catch) p.catch(function () { }); } catch (e) { /* abaikan */ } }
   /** Musik latar berbeda tiap adegan/stage; berpindah dengan crossfade. */
   function syncMusic() {
     try {
@@ -232,8 +233,10 @@
   function setView(mode) { save.settings.viewMode = mode; persist(); go(mode === 'list' ? 'dashboard' : 'world'); }
 
   function go(scene, arg) {
-    var fn = { splash: sceneSplash, profile: sceneProfile, intro: sceneIntro, creator: sceneCreator, dashboard: sceneDashboard, world: sceneWorld,
-      material: sceneMaterial, challenge: sceneChallenge, result: sceneResult }[scene];
+    var fn = {
+      splash: sceneSplash, profile: sceneProfile, intro: sceneIntro, creator: sceneCreator, dashboard: sceneDashboard, world: sceneWorld,
+      material: sceneMaterial, challenge: sceneChallenge, result: sceneResult
+    }[scene];
     applyPlayerLook();
     fn(arg);
     var mid = scene === 'material' ? MISSIONS[arg].id : ((scene === 'challenge' || scene === 'result') && run ? run.mission.id : null);
@@ -241,7 +244,7 @@
   }
 
   /* ---------- Adegan 1: Splash (bergaya Minecraft) ---------- */
-  var SPLASH_TEXTS = ['Commit sekarang!', 'Tanpa database!', 'Satu perubahan, satu commit!', 'git init petualangan!', 'Jangan push rahasia!', '100% JavaScript!', 'Sudah di-stage?', 'Awas Glitch!', 'Ketik lebih cepat!', 'Belajar sambil bermain!', 'Cek git status!', 'Banyak monster bug!'];
+  var SPLASH_TEXTS = ['Commit sekarang!', 'Satu perubahan, satu commit!', 'git init petualangan!', 'Jangan push rahasia!', '100% JavaScript!', 'Sudah di-stage?', 'Awas Glitch!', 'Ketik lebih cepat!', 'Belajar sambil bermain!', 'Cek git status!', 'Banyak monster bug!'];
   function mcBtn(label, onclick, extra) {
     return h('button', Object.assign({ type: 'button', class: 'mc-btn', onclick: function (e) { sfx('click'); onclick(e); }, text: label }, extra || {}));
   }
@@ -542,44 +545,64 @@
 
   /* ---------- Dunia (overworld) ---------- */
   var NPC_INFO = {
-    nara: { name: 'Nara', cls: 'nara', lines: function () {
-      var p = profile(), idx = firstOpenMission();
-      if (p.completedMissions.length === 0) return ['Selamat datang di dunia CodeForge! Portal bercahaya biru bernomor 1 di sisi kiri bawah adalah misi pertamamu.', 'Masuk ke portal, pelajari materinya, lalu kalahkan monster Glitch dengan jawaban yang tepat.'];
-      if (idx >= 0) return ['Kerja bagus! Misi berikutnya: Level ' + MISSIONS[idx].no + ' — ' + MISSIONS[idx].title + '. Portalnya sudah menyala.'];
-      return ['Semua misi yang tersedia sudah kamu tuntaskan. Ulangi misi untuk meraih 100 poin, dan tunggu level berikutnya!'];
-    } },
+    nara: {
+      name: 'Nara', cls: 'nara', lines: function () {
+        var p = profile(), idx = firstOpenMission();
+        if (p.completedMissions.length === 0) return ['Selamat datang di Plaza CodeForge! Setiap stage punya peta sendiri. Gerbang biru bernomor 1 (AKADEMI) di bagian bawah adalah tujuan pertamamu.', 'Di dalam peta ada guru (nama hijau) yang menjelaskan materi, dan penjahat (nama merah) yang menyebar kebiasaan buruk. Ajak bicara semuanya, lalu masuk portal level di ujung peta!'];
+        if (idx >= 0) return ['Kerja bagus! Misi berikutnya: Level ' + MISSIONS[idx].no + ' — ' + MISSIONS[idx].title + '. Gerbang ' + MISSIONS[idx].no + ' di Plaza sudah menyala.'];
+        return ['Semua misi yang tersedia sudah kamu tuntaskan. Ulangi misi untuk meraih 100 poin, dan tunggu level berikutnya!'];
+      }
+    },
     bugbyte: { name: 'Bugbyte', cls: 'bugbyte', lines: function () { return ['Bip! Gerak: panah atau WASD. Interaksi: Enter atau Spasi.', 'Saat bertarung, jawaban benar menyerang musuh. Bingung? Pakai Petunjuk dan aku akan memindai soalnya. Poin berkurang, XP tidak.']; } },
     dev1: { name: 'Dev Senior', cls: 'player', lines: function () { return ['Dulu aku menyalin folder proyek jadi "final_v2_beneran_fix". Berantakan! Sejak pakai Git, semua versi tercatat rapi di riwayat.']; } },
     dev2: { name: 'Dev Magang', cls: 'nara', lines: function () { return ['Tips: bayangkan Staging Area seperti keranjang belanja. git add memasukkan barang ke keranjang, git commit membayarnya ke riwayat.']; } },
-    glitch: { name: 'Glitch', cls: 'glitch', lines: function () {
-      var p = profile();
-      return p.completedMissions.length >= MISSIONS.filter(function (m) { return m.ready; }).length
-        ? ['Grr... kamu sudah menamatkan semua yang ada. Tunggu Bos Terakhir di portal merah itu, kalau berani!']
-        : ['Hehehe! Aku Glitch! Proyekmu akan kubuat berantakan... kecuali kamu menyelesaikan semua level.'];
-    } }
+    glitch: {
+      name: 'Glitch', cls: 'glitch', lines: function () {
+        var p = profile();
+        return p.completedMissions.length >= MISSIONS.filter(function (m) { return m.ready; }).length
+          ? ['Grr... kamu sudah menamatkan semua yang ada. Tunggu Bos Terakhir di Benteng Merge, kalau berani!']
+          : ['Hehehe! Aku Glitch! Proyekmu akan kubuat berantakan... kecuali kamu menyelesaikan semua level.'];
+      }
+    }
   };
   function firstOpenMission() {
     for (var i = 0; i < MISSIONS.length; i++) if (missionStatus(i) === 'available') return i;
     return -1;
   }
 
+  // NPC dari data/areas.js (peta tiap stage): "good" mengajar, "evil" menyebar kebiasaan buruk lalu mengaku
+  var AREAS = window.GQ_AREAS || {};
+  var talked = {};   // NPC yang sudah diajak bicara pada sesi ini (menghilangkan tanda "!")
+  Object.keys(AREAS).forEach(function (aid) {
+    AREAS[aid].npcs.forEach(function (n) {
+      if (!NPC_INFO[n.id]) { var ls = n.lines; NPC_INFO[n.id] = { name: n.name, cls: n.kind === 'evil' ? 'glitch' : 'nara', lines: function () { return ls; } }; }
+      NPC_INFO[n.id].kind = n.kind;
+    });
+  });
   function talk(id) {
     var info = NPC_INFO[id]; if (!info) return;
-    var lines = info.lines(), i = 0, close;
-    var text = h('div', { class: 'speech', text: lines[0] });
+    talked[id] = 1;
+    var lines = info.lines(), i = 0, close, evil = info.kind === 'evil';
+    var text = h('div', { class: 'speech' + (evil ? ' evil' : ''), text: lines[0] });
     var next = btn(lines.length > 1 ? 'Lanjut' : 'Tutup', 'btn-primary', function () {
-      if (i < lines.length - 1) { i++; text.textContent = lines[i]; if (i === lines.length - 1) next.textContent = 'Tutup'; }
+      if (i < lines.length - 1) { i++; text.textContent = lines[i]; if (i === lines.length - 1) next.textContent = 'Tutup'; sfx('click'); }
       else close();
     });
-    close = openModal(info.name, [h('div', { class: 'speaker', text: info.name }), text, h('div', { class: 'row' }, next)]);
+    sfx(evil ? 'wrong' : 'hint');
+    close = openModal(info.name, [h('div', { class: 'speaker ' + (evil ? 'evil' : 'good'), text: info.name + (evil ? ' (jahat)' : ' (baik)') }), text, h('div', { class: 'row' }, next)]);
   }
 
-  function portalDialog(i) {
-    var m = MISSIONS[i], st = missionStatus(i), close;
+  function areaOfMission(i) { var id = MISSIONS[i].id; return AREAS[id] ? id : null; }
+  /** Dialog portal: gerbang Plaza (pilih area) atau portal misi di dalam peta stage. */
+  function portalDialog(p) {
+    var i = p.mission, m = MISSIONS[i], st = missionStatus(i), close, isGate = p.kind === 'gate';
     var body = [h('p', { class: 'muted', text: m.summary }), h('p', null, h('b', { text: 'Tipe game: ' }), m.game || '-', h('br'), h('b', { text: 'Musuh: ' }), m.enemy ? m.enemy.name : '???'), h('span', { class: 'badge ' + st }, STATUS_ICON[st] ? icon(STATUS_ICON[st]) : null, STATUS_LABEL[st])];
     var acts = [];
-    if (st === 'available' || st === 'completed') {
-      acts.push(btn(st === 'completed' ? 'Masuk lagi' : 'Masuk', 'btn-primary', function () { close(); lastPortal = i; cinematic(i, function () { go('material', i); }); }));
+    if (isGate && (st === 'available' || st === 'completed')) {
+      body.unshift(h('p', null, h('b', { text: 'Area: ' }), AREAS[p.to].name));
+      acts.push(btn('Masuk Area', 'btn-primary', function () { close(); sfx('portal'); if (world) world.enter(p.to); }));
+    } else if (st === 'available' || st === 'completed') {
+      acts.push(btn(st === 'completed' ? 'Masuk lagi' : 'Masuk', 'btn-primary', function () { close(); lastPortal = i; lastArea = areaOfMission(i) || 'plaza'; cinematic(i, function () { go('material', i); }); }));
     } else if (st === 'locked') {
       body.push(h('p', { class: 'note', text: 'Terkunci. Selesaikan Level ' + MISSIONS[i - 1].no + ' dengan nilai minimal ' + Score.CONFIG.passScore + ' untuk membukanya.' }));
     } else {
@@ -597,13 +620,15 @@
     var canvas = h('canvas', { class: 'world-canvas', tabindex: '0', role: 'application', 'aria-label': 'Dunia GIT QUEST. Gerak dengan tombol panah atau WASD. Tekan Enter untuk berinteraksi. Alternatif: gunakan Mode Daftar.' });
 
     var gs = Score.gameStatus(p, MISSIONS), open = firstOpenMission();
+    var locLabel = h('p', { class: 'loc' });
     var quest = h('div', { class: 'card' },
       h('h2', { text: 'Misi Aktif' }),
       open >= 0
-        ? [h('p', null, h('b', { text: 'Level ' + MISSIONS[open].no + ': ' + MISSIONS[open].title })), h('p', { class: 'muted', text: 'Game: ' + MISSIONS[open].game + '. Menuju portal bernomor ' + MISSIONS[open].no + ' yang bercahaya.' })]
+        ? [h('p', null, h('b', { text: 'Level ' + MISSIONS[open].no + ': ' + MISSIONS[open].title })), h('p', { class: 'muted', text: 'Game: ' + MISSIONS[open].game + '. Masuk gerbang ' + MISSIONS[open].no + ' di Plaza, bicara dengan NPC, lalu masuk portal level di ujung peta.' })]
         : h('p', { class: 'muted', text: 'Semua misi yang tersedia sudah selesai. Level berikutnya segera hadir.' }),
       h('div', { class: 'bar-label' }, h('span', { text: 'Misi selesai' }), h('span', { text: gs.done + ' / ' + gs.total })),
       h('div', { class: 'bar green', role: 'progressbar', 'aria-label': 'Misi selesai', 'aria-valuemin': '0', 'aria-valuemax': String(gs.total), 'aria-valuenow': String(gs.done) }, h('i', { style: 'width:' + (gs.done / gs.total * 100) + '%' })));
+    var where = h('div', { class: 'card' }, h('h2', { text: 'Lokasi' }), locLabel);
 
     function padBtn(label, aria) { return h('button', { type: 'button', class: 'btn btn-secondary pad', 'aria-label': aria, text: label }); }
     var up = padBtn('▲', 'Naik'), dn = padBtn('▼', 'Turun'), lf = padBtn('◀', 'Kiri'), rt = padBtn('▶', 'Kanan');
@@ -614,30 +639,47 @@
       hudBar(p, [btn('Mode Daftar', 'btn-secondary', function () { setView('list'); }), btn('Pengaturan', 'btn-secondary', openSettings), btn('Ganti Profil', 'btn-secondary', function () { go('profile'); })]),
       h('div', { class: 'world-layout' },
         h('section', { 'aria-label': 'Dunia' }, canvas, hint),
-        h('aside', { class: 'side' }, quest,
+        h('aside', { class: 'side' }, where, quest,
           h('div', { class: 'card' }, h('h2', { text: 'Kontrol' }), dpad,
             h('div', { class: 'row', style: 'justify-content:center;margin-top:8px' }, btn('Lambai (F)', 'btn-secondary', function () { if (world) world.emote(); })),
-            h('p', { class: 'muted', style: 'margin-top:10px;font-size:.85rem', text: 'Klik peta untuk berjalan otomatis. Keyboard: panah/WASD, Enter/Spasi untuk berinteraksi, F untuk melambai.' }))))));
+            h('p', { class: 'muted', style: 'margin-top:10px;font-size:.85rem', text: 'Klik peta untuk berjalan otomatis. Keyboard: panah/WASD, Enter/Spasi untuk berinteraksi, F untuk melambai. Pintu kuning (panah kiri) = kembali ke Plaza.' }))))));
     mount(wrap, 'splash');
 
     var unlockNow = pendingUnlock; pendingUnlock = -1;
-    var spawn = null;
-    if (lastPortal >= 0) { var pp = window.GQWorld.PORTALS[lastPortal]; spawn = { x: pp.x, y: pp.y + 1 > 11 ? pp.y - 1 : pp.y + 1 }; if (pp.y <= 4) spawn = { x: pp.x, y: pp.y + 1 }; }
+    // Setelah menamatkan level pertama kali: kembali ke Plaza (animasi gerbang berikutnya terbuka). Lainnya: ke peta terakhir.
+    var startArea = unlockNow >= 0 ? 'plaza' : (AREAS[lastArea] ? lastArea : 'plaza'), spawn = null;
+    if (lastPortal >= 0) {
+      var tgt = AREAS[startArea].portals.filter(function (q) { return q.mission === lastPortal && q.kind !== 'exit'; })[0];
+      if (tgt) spawn = { x: tgt.x, y: tgt.y > AREAS[startArea].h / 2 ? tgt.y - 1 : tgt.y + 1 };
+    }
+    function portalName(pt) { return pt.kind === 'exit' ? 'Pintu keluar ke ' + AREAS[pt.to].name : (pt.kind === 'gate' ? 'Gerbang ' + AREAS[pt.to].name : 'Portal ' + MISSIONS[pt.mission].title); }
     world = window.GQWorld.start({
-      canvas: canvas, spawn: spawn, finalIndex: MISSIONS.length - 1,
+      canvas: canvas, area: startArea, spawn: spawn, finalIndex: MISSIONS.length - 1,
       unlock: unlockNow >= 0 ? unlockNow : null,
-      alert: function (id) { return id === 'nara' && (unlockNow >= 0 || profile().completedMissions.length === 0); },
+      alert: function (id, n) {
+        if (id === 'nara') return !talked.nara && (unlockNow >= 0 || profile().completedMissions.length === 0);
+        return !talked[id] && lastArea !== 'plaza' && !!n;
+      },
       getStatus: missionStatus,
       reduceMotion: function () { return !!save.settings.reduceMotion; },
-      onPortal: function (i) { portalDialog(i); },
+      onArea: function (A) {
+        lastArea = A.id;
+        locLabel.textContent = '';
+        locLabel.appendChild(h('b', { text: A.name })); locLabel.appendChild(h('br')); locLabel.appendChild(document.createTextNode(A.sub || ''));
+        hint.textContent = A.id === 'plaza' ? 'Jelajahi Plaza dengan panah atau WASD. Masuk gerbang bernomor untuk membuka peta stage.' : 'Ajak bicara NPC: nama hijau = guru, nama merah = penjahat. Portal level ada di ujung peta.';
+        if (A.id !== 'plaza') sfx('portal');
+      },
+      onPortal: function (pt) { portalDialog(pt); },
       onNpc: function (id) { talk(id); },
       onHover: function (info) {
-        if (!info) hint.textContent = 'Jelajahi dunia dengan panah atau WASD.';
-        else if (info.type === 'portal') hint.textContent = 'Portal ' + MISSIONS[info.index].title + ' — tekan Enter atau Aksi untuk membuka.';
+        var base = lastArea === 'plaza' ? 'Jelajahi Plaza dengan panah atau WASD.' : 'Jelajahi peta dengan panah atau WASD.';
+        if (!info) hint.textContent = base;
+        else if (info.type === 'portal') hint.textContent = portalName(info.portal) + ' — tekan Enter atau Aksi untuk membuka.';
         else hint.textContent = NPC_INFO[info.id].name + ' ada di dekatmu — tekan Enter atau Aksi untuk bicara.';
       }
     });
-    if (unlockNow >= 0) setTimeout(function () { toast('Portal Level ' + MISSIONS[unlockNow].no + ' terbuka! Masuk lewat peta.'); sfx('unlock'); }, 700);
+    if (window.GQ_FAST) window.__world = world;   // hanya untuk tes otomatis
+    if (unlockNow >= 0) setTimeout(function () { toast('Gerbang Level ' + MISSIONS[unlockNow].no + ' terbuka! Masuk lewat Plaza.'); sfx('unlock'); }, 700);
     world.attachPad(up, 0, -1); world.attachPad(dn, 0, 1); world.attachPad(lf, -1, 0); world.attachPad(rt, 1, 0);
     act.addEventListener('click', function () { world.interact(); });
     canvas.focus({ preventScroll: true });
@@ -949,10 +991,10 @@
         } else {
           arena.enemyStrike();
           if (!quiet) {
-          sfx('wrong');
-          showFb('bad', '✖ Belum tepat', ' Periksa kembali jawabanmu. Tinjau materi: ' +
-            m.material.map(function (s) { return '“' + s.h + '”'; }).join(', ') +
-            '. Petunjuk tersedia (poin berkurang, XP tidak).');
+            sfx('wrong');
+            showFb('bad', '✖ Belum tepat', ' Periksa kembali jawabanmu. Tinjau materi: ' +
+              m.material.map(function (s) { return '“' + s.h + '”'; }).join(', ') +
+              '. Petunjuk tersedia (poin berkurang, XP tidak).');
           }
         }
       }
